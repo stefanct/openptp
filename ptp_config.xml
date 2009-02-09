@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<PTP_config>
+    <config_ver>1.4</config_ver>
+
+    <General>
+        <debug>1</debug>
+        <custom_clk_if>0</custom_clk_if>
+        <clock_status_file>1</clock_status_file>
+    </General>
+
+    <Interface name="eth0">
+        <multicast>1</multicast>
+    </Interface>
+
+    <Interface name="eth1">
+        <multicast>0</multicast>
+        <unicast>10.1.2.3</unicast>
+        <unicast>10.1.2.5</unicast>
+    </Interface>
+
+    <Basic>
+        <one_step_clock>0</one_step_clock>
+    </Basic>
+
+    <Clock>
+        <clock_class>187</clock_class>
+        <clock_accuracy>1us</clock_accuracy>
+        <clock_priority1>128</clock_priority1>
+        <clock_priority2>128</clock_priority2>
+        <domain>0</domain>
+        <clock_source>internal oscillator</clock_source>
+    </Clock>
+
+    <Intervals>
+        <announce_interval>1</announce_interval>
+        <sync_interval>0</sync_interval>
+        <delay_req_interval>0</delay_req_interval>
+    </Intervals>
+</PTP_config>
+

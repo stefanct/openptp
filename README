@@ -1,0 +1,55 @@
+Openptp is an opensource implementation of the Precision Time Protocol (PTP) version 2 [IEEE STD1588-2008]. 
+
+1. Compilation
+run "make" in top directory
+
+2. Installation
+run "make install" in top directory
+
+3. Configuration
+Configuration is set in ptp_config.xml. A sample file can be found from top directory. XML schema can be found from ptp_config.xsd.
+
+Configurable parameters:
+- <debug>: commanline debugging on/off (1/0)
+- <custom_clk_if>: custom clock interface on/off (1/0) (used currently to control multicast loopback used for timestamping)
+- <clock_status_file>: enable/disable (1/0) debug file generation to /tmp (ptp_state.txt: master/slave, ptp_debug.txt: clock adjustment status in slave)
+- <Interface>: enable/disable interfaces, multiple entries supported.
+    - enable multicast on eth0:
+    <Interface name="eth0">
+        <multicast>1</multicast>
+    </Interface>
+    - enable unicast only on eth1:
+    <Interface name="eth1">
+        <multicast>0</multicast>
+        <unicast>10.1.2.3</unicast>
+        <unicast>10.1.2.5</unicast>
+    </Interface>
+- <one_step_clock>: enable unicast mode, HW SUPPORT REQUIRED!
+- <Clock>: Clock configurations, see standard and ptp_config.c for possible values.
+- <Intervals>: message rates, in power of 2, see standard (e.g. -4 means 16 messages per second)
+
+4. Execution
+run "openptp ptp_config.xml"
+
+
+
+Features included:
+- Ordinary clock
+- Boundary clock
+- BMC alogorithm
+- Asymmetry corrections
+- Adjustable message transmission intervals
+- Support for domains
+- Timescale PTP
+- Layer 3, UDP IPv4
+- Unicast transmission
+
+Features not included currently:
+- End-to-end transparent clock
+- Peer-to-peer transparent clock
+- Management node
+- PTP variance support
+- Unicast negotiation
+- Unicast discovery
+- Security protocol
+
