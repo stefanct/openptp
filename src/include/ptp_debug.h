@@ -27,11 +27,28 @@
 #ifndef _PTP_DEBUG_H_
 #define _PTP_DEBUG_H_
 
+#include <syslog.h>
+
 #include <ptp_config.h>
 
-#define ERROR(x...) { printf("ERROR in %s[%i]: ",__FUNCTION__, __LINE__); printf(x);}
-#define DEBUG(x...) if(ptp_cfg.debug){ printf("%s[%i]: ",__FUNCTION__, __LINE__); printf(x); }
-#define DEBUG_PLAIN(x...) if(ptp_cfg.debug){ printf(x); }
+#define DEBUG(x...) \
+    do { \
+        if(ptp_cfg.debug) { \
+            OUTPUT_SYSLOG(LOG_DEBUG, ##x); \
+        } \
+    } while(0)
+
+#define ERROR(x...) \
+    do { \
+        OUTPUT_SYSLOG(LOG_ERR, ##x); \
+    } while(0)
+
+/// Output a message to syslog. Not meant to be used directly.
+#define OUTPUT_SYSLOG(prio,fmt,x...) \
+    syslog(LOG_DAEMON | prio, "%s:%i %s: " fmt, \
+            __FILE__, __LINE__, __FUNCTION__, ##x); \
+
+#define DEBUG_PLAIN(fmt,x...) DEBUG("[PLAIN] ", fmt, ##x)
 
 static char tmp_str[40];
 inline static char *ptp_clk_id(u8 * clk_id)

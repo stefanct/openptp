@@ -45,9 +45,18 @@ struct packet_ctx {
 /**
 * Function for initializing packet interface. 
 * @param ctx packet if context
+* @param cfg_file Config file name for packet interface.
 * @return ptp error code.
 */
-int ptp_initialize_packet_if(struct packet_ctx *ctx);
+int ptp_initialize_packet_if(struct packet_ctx *ctx, char* cfg_file);
+
+/**
+* Function for reconfiguring packet interface. 
+* @param ctx packet if context
+* @param cfg_file Config file name for packet interface.
+* @return ptp error code.
+*/
+int ptp_reconfig_packet_if(struct packet_ctx *ctx, char* cfg_file);
 
 /**
 * Function for closing packet interface. 
@@ -78,10 +87,12 @@ int ptp_send(struct packet_ctx *ctx, int msg_type, int port_num,
 * @param frame buffer for received frame.
 * @param length frame buffer length.
 * @param recv_time timestamp for received frame.
+* @param peer_addr Peer address returned here if not NULL.
 * @return ptp error code.
 */
 int ptp_receive(struct packet_ctx *ctx, u32 * timeout, int *port_num,
-                char *frame, int *length, struct Timestamp *recv_time);
+                char *frame, int *length, struct Timestamp *recv_time,
+                char *peer_addr);
 
 /** These API functions are called by packet module and implemented by 
 * PTP module. 
@@ -94,8 +105,12 @@ int ptp_receive(struct packet_ctx *ctx, u32 * timeout, int *port_num,
 * @param port_num port number.
 * @param identity clock identity.
 * @param set if unicast port.
+* @param if_config Interface configuration.
 */
-void ptp_new_port(int port_num, ClockIdentity identity, bool unicast_port);
+void ptp_new_port(int port_num, 
+                  ClockIdentity identity, 
+                  bool unicast_port,
+                  struct interface_config* if_config );
 
 /**
 * Function for closing existing PTP port. After completion of this function call,

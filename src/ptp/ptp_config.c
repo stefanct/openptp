@@ -77,6 +77,8 @@ int read_initialization(char *filename)
     int value = 0;
     int i = 0, ret = 0, j = 0;
     int section_length = 0;
+    long cur_section_pos = 0;
+    int cur_section_length = 0;
 
     if (filename == NULL) {
         return PTP_ERR_GEN;
@@ -104,6 +106,10 @@ int read_initialization(char *filename)
         ERROR("parse\n");
         return PTP_ERR_GEN;
     }
+    // Remember this section for relaxed element ordering
+    cur_section_pos = ftell(fp);
+    cur_section_length = section_length;
+
     // get debug flag
     if (parse_int(fp, "debug", &value, &section_length) != PARSER_OK) {
         ERROR("parse\n");
@@ -112,53 +118,58 @@ int read_initialization(char *filename)
     DEBUG("debug %i\n", value);
     ptp_cfg.debug = value;
 
-    // get custom_clk_if flag
-    if (parse_int(fp, "custom_clk_if", &value, &section_length) !=
-        PARSER_OK) {
-        ERROR("parse\n");
-        return PTP_ERR_GEN;
-    }
-    DEBUG("custom_clk_if %i\n", value);
-    ptp_cfg.custom_clk_if = value;
-
-    // get clock_status_file flag
-    if (parse_int(fp, "clock_status_file", &value, &section_length) !=
-        PARSER_OK) {
-        ERROR("parse\n");
-        return PTP_ERR_GEN;
-    }
-    DEBUG("clock_status_file %i\n", value);
-    ptp_cfg.clock_status_file = value;
-
     // Start parsing Interfaces
     fseek(fp, 0, SEEK_SET);
     ptp_cfg.num_interfaces = 0;
     for (i = 0; i < MAX_NUM_INTERFACES; i++) {
         // Get next interface 
+        section_length = 0;
         ret = search_tag_with_attr(fp, "Interface",
                                    tmp, MAX_VALUE_LEN,
                                    ptp_cfg.interfaces[ptp_cfg.
                                                       num_interfaces].name,
-                                   INTERFACE_NAME_LEN, 0);
+                                   INTERFACE_NAME_LEN, 
+                                   &section_length);
         if (ret < PARSER_OK) {
             DEBUG("No more Interfaces\n");
             break;
         }
+        // Remember this section for relaxed element ordering
+        cur_section_pos = ftell(fp);
+        cur_section_length = section_length;
 
         if (strncmp(tmp, "name", MAX_VALUE_LEN) != 0) {
             ERROR("Unknown attribute for Interface %s\n", tmp);
         }
         ptp_cfg.interfaces[ptp_cfg.num_interfaces].enabled = 1;
 
-        DEBUG("%s=\"%s\"\n",
-              tmp, ptp_cfg.interfaces[ptp_cfg.num_interfaces].name);
+        DEBUG("%s=\"%s\" %i\n",
+              tmp,
+              ptp_cfg.interfaces[ptp_cfg.num_interfaces].name,
+              section_length );
+
+        // delay_asymmetry setting
+        ret = parse_int(fp, "delay_asymmetry", &value, &section_length);
+        if (ret == PARSER_OK){
+            DEBUG("%s delay_asymmetry %i\n",
+                  ptp_cfg.interfaces[ptp_cfg.num_interfaces].name,
+                  value );
+            ptp_cfg.interfaces[ptp_cfg.num_interfaces].delay_asymmetry = value;
+        }
+
         // multicast setting
+        fseek(fp, cur_section_pos, SEEK_SET);
+        section_length = cur_section_length;
         ret = parse_int(fp, "multicast", &value, &section_length);
         if ((ret != PARSER_OK) || (value == 0)) {
             ptp_cfg.interfaces[ptp_cfg.num_interfaces].multicast_ena = 0;
         } else {
             ptp_cfg.interfaces[ptp_cfg.num_interfaces].multicast_ena = 1;
         }
+
+        // Unicast settings
+        fseek(fp, cur_section_pos, SEEK_SET);
+        section_length = cur_section_length;
         ptp_cfg.interfaces[ptp_cfg.num_interfaces].num_unicast_addr = 0;
         for (j = 0; j < MAX_NUM_INTERFACES; j++) {
             // get IP
@@ -186,6 +197,7 @@ int read_initialization(char *filename)
         }
         ptp_cfg.num_interfaces++;
     }
+
     // Start parsing Basic options
     fseek(fp, 0, SEEK_SET);
     section_length = search_tag(fp, "Basic", 0);
@@ -209,6 +221,10 @@ int read_initialization(char *filename)
         ERROR("parse\n");
         return PTP_ERR_GEN;
     }
+    // Remember this section for relaxed element ordering
+    cur_section_pos = ftell(fp);
+    cur_section_length = section_length;
+
     // get clock_class
     if (parse_int(fp, "clock_class", &value, &section_length) != PARSER_OK) {
         ERROR("parse\n");
@@ -218,6 +234,8 @@ int read_initialization(char *filename)
     ptp_cfg.clock_class = value;
 
     // get clock_accuracy
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_str
         (fp, "clock_accuracy", tmp, MAX_VALUE_LEN,
          &section_length) != PARSER_OK) {
@@ -235,7 +253,10 @@ int read_initialization(char *filename)
         ERROR("parse\n");
         return PTP_ERR_GEN;
     }
+
     // get clock_priority1
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_int(fp, "clock_priority1", &value, &section_length) !=
         PARSER_OK) {
         ERROR("parse\n");
@@ -245,6 +266,8 @@ int read_initialization(char *filename)
     ptp_cfg.clock_priority1 = value;
 
     // get clock_priority2
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_int(fp, "clock_priority2", &value, &section_length) !=
         PARSER_OK) {
         ERROR("parse\n");
@@ -254,6 +277,8 @@ int read_initialization(char *filename)
     ptp_cfg.clock_priority2 = value;
 
     // get domain
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_int(fp, "domain", &value, &section_length) != PARSER_OK) {
         ERROR("parse\n");
         return PTP_ERR_GEN;
@@ -262,6 +287,8 @@ int read_initialization(char *filename)
     ptp_cfg.domain = value;
 
     // get clock_source
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_str(fp, "clock_source", tmp, MAX_VALUE_LEN, &section_length)
         != PARSER_OK) {
         ERROR("parse\n");
@@ -278,6 +305,7 @@ int read_initialization(char *filename)
         ERROR("parse\n");
         return PTP_ERR_GEN;
     }
+
     // Start parsing Intervals options
     fseek(fp, 0, SEEK_SET);
     section_length = search_tag(fp, "Intervals", 0);
@@ -285,6 +313,10 @@ int read_initialization(char *filename)
         ERROR("parse\n");
         return PTP_ERR_GEN;
     }
+    // Remember this section for relaxed element ordering
+    cur_section_pos = ftell(fp);
+    cur_section_length = section_length;
+
     // get announce_interval
     if (parse_int(fp, "announce_interval", &value, &section_length) !=
         PARSER_OK) {
@@ -295,6 +327,8 @@ int read_initialization(char *filename)
     ptp_cfg.announce_interval = value;
 
     // get sync_interval
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_int(fp, "sync_interval", &value, &section_length) !=
         PARSER_OK) {
         ERROR("parse\n");
@@ -304,6 +338,8 @@ int read_initialization(char *filename)
     ptp_cfg.sync_interval = value;
 
     // get delay_req_interval
+    fseek(fp, cur_section_pos, SEEK_SET);
+    section_length = cur_section_length;
     if (parse_int(fp, "delay_req_interval", &value, &section_length) !=
         PARSER_OK) {
         ERROR("parse\n");

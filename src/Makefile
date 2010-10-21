@@ -16,18 +16,14 @@ LIBDIRS = -L$(srcdir)/../xml_parser -L$(srcdir)/bin -L$(prefix)/lib
 INCLUDES = -I$(srcdir)/include -I$(srcdir)/ptp -I$(srcdir)/include/linux -I$(srcdir)/../xml_parser/ 
 CDEBUG = -g
 CFLAGS = $(CDEBUG) $(INCLUDES) -Wall -O0 
-LDFLAGS = -g $(LIBDIRS) $(LIBS) -Wl,-rpath $(prefix)/lib
+LDFLAGS = -g $(LIBDIRS) $(LIBS)
 MAKE_OPTS = 
 
 #### End of system configuration section. ####
 
 OBJ = ptp_main.o ptp/ptp.o ptp/ptp_port_state.o ptp/ptp_port_recv.o \
       ptp/ptp_port_packet.o ptp/ptp_framer.o ptp/ptp_bmc.o ptp/ptp_config.o
-HDR = include/clock_if.h include/os_if.h include/packet_if.h \
-      include/ptp_config.h include/ptp_general.h include/ptp_message.h \
-      include/linux/ptp_types.h include/ptp_debug.h include/ptp_internal.h \
-      include/linux/print.h
-HDR += ptp/ptp_framer.h ptp/ptp_bmc.h ptp/ptp.h ptp/ptp_port.h 
+HDR = include/*.h 
 
 PROG = $(srcdir)/bin/openptp
 
@@ -37,7 +33,7 @@ PROG = $(srcdir)/bin/openptp
 all: $(PROG)
 
 $(PROG): $(OBJ)
-	mkdir $(srcdir)/bin &> /dev/null || echo -n
+	mkdir -p $(srcdir)/bin
 	$(MAKE) -C clock_if $(MAKE_OPTS)
 	$(MAKE) -C os_if $(MAKE_OPTS)
 	$(MAKE) -C packet_if $(MAKE_OPTS)

@@ -32,6 +32,8 @@
 #include <packet_if.h>
 #include <clock_if.h>
 
+#define SEC_IN_NS   1000000000
+
 /**
 * PTP daemon "master" state.
 */
@@ -57,9 +59,15 @@ struct ptp_ctx {
     struct packet_ctx pkt_ctx;  ///< Packet_if context
     struct os_ctx os_ctx;       ///< Os_if context
     struct clock_ctx clk_ctx;   ///< Clock_if context
+
+    char* ptp_cfg_file;
+    char* clock_if_file;
+    char* packet_if_file;
+    char* os_if_file;
 };
 
 extern struct ptp_ctx ptp_ctx;
+extern int socket_restart;
 
 /**
 * PTP main.
@@ -75,6 +83,7 @@ void init_current_dataset(struct CurrentDataSet *dataset);
 void init_parent_dataset(struct ParentDataSet *dataset);
 void init_time_dataset(struct TimeProperitiesDataSet *dataset);
 void init_sec_dataset(struct SecurityDataSet *dataset);
+void init_port_dataset(struct PortDataSet *dataset);
 
 // Timestamp modification functions
 void inc_timestamp(struct Timestamp *base, struct Timestamp *inc);
@@ -85,7 +94,7 @@ int diff_timestamp(struct Timestamp *t1, struct Timestamp *t2,
                    struct Timestamp *diff);
 struct Timestamp *older_timestamp(struct Timestamp *t1,
                                   struct Timestamp *t2);
-void add_correction(struct Timestamp *base, u64 add);
+void add_correction(struct Timestamp *base, s64 add);
 void timeout(struct Timestamp *current, struct Timestamp *trig,
              struct Timestamp *timeout);
 // For timeout calculation

@@ -3,6 +3,8 @@
 SHELL = /bin/sh
 MAKE_OPTS = 
 
+.PHONY: all
+
 all: 
 	$(MAKE) -C xml_parser $(MAKE_OPTS)
 	$(MAKE) -C src $(MAKE_OPTS)

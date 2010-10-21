@@ -33,6 +33,10 @@
 */
 struct ptp_port_ctx {
     struct ptp_port_ctx *next;  ///< Internal pointer for utilizing lists.
+
+    char name[INTERFACE_NAME_LEN]; // interface name
+    char current_master_ip[IP_STR_MAX_LEN]; // Current master ip address str
+   
     bool port_state_updated;    ///< flag, port state has been updated
     int timer_flags;            ///< flag for every timer enable
     struct Timestamp announce_timer;    ///< timeout for announce interval
@@ -48,11 +52,22 @@ struct ptp_port_ctx {
     u16 announce_seqid;         ///< sequence id for announce 
     struct Timestamp sync_recv_time;    ///< timestamp of the received sync
     u64 sync_recv_corr_field;   ///< correction field of the received sync
+    /// sequence id for delay_req for which delay_req_send_time is valid
+    u16 delay_req_seqid_sent;   
     struct Timestamp delay_req_send_time;       ///< timestamp of the sent delay_req
     struct ForeignMasterDataSetElem *foreign_master_head;
     ///< List head of foreign master datasets
     ClockIdentity current_master;       ///< clock identity of the current master
     bool unicast_port;          ///< flag, unicast port
+    /** delay asymmetry for port. This is used if delay_asymmetry_master_set==0 
+     * or delay_asymmetry_master_set==1 and delay_asymmetry_master is the
+     * clock_id of the current_master */
+    s32 delay_asymmetry;          
+    /// set to '1' if delay_asymmetry_master is set
+    int delay_asymmetry_master_set;       
+    /// Clock id for delay_asymmetry setting
+    ClockIdentity delay_asymmetry_master;
+
     struct PortDataSet port_dataset;    ///< Port dataset      
 };
 
@@ -81,9 +96,13 @@ void ptp_port_statemachine(struct ptp_port_ctx *ctx,
 * @param buf PTP message.
 * @param len msg length.
 * @param time timestamp for received frame.
+* @param peer_ip IP address of the sender of this message.
 */
 void ptp_port_recv(struct ptp_port_ctx *ctx,
-                   char *buf, int len, struct Timestamp *time);
+                   char *buf, 
+                   int len, 
+                   struct Timestamp *time,
+                   char* peer_ip);
 
 /**
 * Function for updating the PTP port state
@@ -99,10 +118,13 @@ void ptp_port_state_update(struct ptp_port_ctx *ctx,
 * @param new_state new bmc input.
 * @param master if BMC_SLAVE or BMC_PASSIVE, contains 
 *               master ClockIdentity, otherwise NULL.
+* @param peer_ip IP address of the sender of this message.
 * @return true if state updated.
 */
 bool ptp_port_bmc_update(struct ptp_port_ctx *ctx,
-                         enum BMCUpdate bmc_update, ClockIdentity master);
+                         enum BMCUpdate bmc_update, 
+                         ClockIdentity master,
+                         char* peer_ip);
 
 /**
 * Check if ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES.

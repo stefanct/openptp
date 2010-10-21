@@ -59,10 +59,18 @@ enum ptp_event_ctrl {
 /**
 * Function for initializing clock interface. 
 * @param ctx clock context
-* @param filename Configuration file name
+* @param cfg_file Clock interface configuration file name
 * @return ptp error code.
 */
-int ptp_initialize_clock_if(struct clock_ctx *ctx, char *filename);
+int ptp_initialize_clock_if(struct clock_ctx *ctx, char* cfg_file);
+
+/**
+* Function for reconfiguring clock interface. 
+* @param ctx clock context
+* @param cfg_file Clock interface configuration file name
+* @return ptp error code.
+*/
+int ptp_reconfig_clock_if(struct clock_ctx *ctx, char* cfg_file);
 
 /**
 * Function for closing clock interface. 

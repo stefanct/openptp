@@ -1,173 +1,209 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
-  <xs:element name="PTP_config">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element name="config_ver" type="xs:string"/>
-        <xs:element name="General">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="debug" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="1"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="custom_clk_if" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="1"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="clock_status_file" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="1"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-            </xs:sequence>
-          </xs:complexType>
-        </xs:element>
-        <xs:element name="Interface" maxOccurs="unbounded">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="multicast" default="1">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="1"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="unicast" minOccurs="0" maxOccurs="unbounded" type="xs:string"/>
-            </xs:sequence>
-            <xs:attribute name="name" type="xs:string" use="required"/>
-          </xs:complexType>
-        </xs:element>
-        <xs:element name="Basic">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="one_step_clock" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="1"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-            </xs:sequence>
-          </xs:complexType>
-        </xs:element>
-        <xs:element name="Clock">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="clock_class" default="187">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="255"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="clock_accuracy" default="1us">
-                <xs:simpleType>
-                  <xs:restriction base="xs:string">
-                    <xs:enumeration value="25ns"/>
-                    <xs:enumeration value="100ns"/>
-                    <xs:enumeration value="250ns"/>
-                    <xs:enumeration value="1us"/>
-                    <xs:enumeration value="2,5us"/>
-                    <xs:enumeration value="10us"/>
-                    <xs:enumeration value="25us"/>
-                    <xs:enumeration value="100us"/>
-                    <xs:enumeration value="250us"/>
-                    <xs:enumeration value="1ms"/>
-                    <xs:enumeration value="2,5ms"/>
-                    <xs:enumeration value="10ms"/>
-                    <xs:enumeration value="25ms"/>
-                    <xs:enumeration value="100ms"/>
-                    <xs:enumeration value="250ms"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="clock_priority1" default="128">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="255"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="clock_priority2" default="128">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="255"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="domain" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="0"/>
-                    <xs:maxInclusive value="255"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="clock_source" default="internal oscillator">
-                <xs:simpleType>
-                  <xs:restriction base="xs:string">
-                    <xs:enumeration value="atomic clock"/>
-                    <xs:enumeration value="gps"/>
-                    <xs:enumeration value="terrestrial radio"/>
-                    <xs:enumeration value="ptp"/>
-                    <xs:enumeration value="ntp"/>
-                    <xs:enumeration value="hand set"/>
-                    <xs:enumeration value="other "/>
-                    <xs:enumeration value="internal oscillator"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-            </xs:sequence>
-          </xs:complexType>
-        </xs:element>
-        <xs:element name="Intervals">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="announce_interval" default="1">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="-8"/>
-                    <xs:maxInclusive value="64"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="sync_interval" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="-8"/>
-                    <xs:maxInclusive value="64"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-              <xs:element name="delay_req_interval" default="0">
-                <xs:simpleType>
-                  <xs:restriction base="xs:integer">
-                    <xs:minInclusive value="-8"/>
-                    <xs:maxInclusive value="64"/>
-                  </xs:restriction>
-                </xs:simpleType>
-              </xs:element>
-            </xs:sequence>
-          </xs:complexType>
-        </xs:element>            
-      </xs:sequence>
-    </xs:complexType>
-  </xs:element>       
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="http://flexibilis.com/schema/ptp/1.0/config" 
+           targetNamespace="http://flexibilis.com/schema/ptp/1.0/config" 
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified"
+           xml:lang="en">
+
+  <!--
+      import standard XML definitions
+    -->
+  <xs:import namespace="http://www.w3.org/XML/1998/namespace"
+             schemaLocation="http://www.w3.org/2001/xml.xsd">
+    <xs:annotation>
+      <xs:documentation>
+        This import accesses the xml: attribute groups for the
+        xml:lang.
+      </xs:documentation>
+    </xs:annotation>
+  </xs:import>
+
+  <!-- 
+       GeneralType 
+    -->
+  <xs:complexType name="GeneralType">
+    <xs:all>
+      <xs:element name="debug" default="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+    </xs:all>
+  </xs:complexType>
+
+  <!--
+      InterfaceType 
+    -->
+  <xs:complexType name="InterfaceType">
+    <xs:all>
+      <xs:element name="delay_asymmetry" minOccurs="0" type="xs:integer"/>
+      <xs:element name="multicast" default="1">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="unicast" minOccurs="0" maxOccurs="unbounded">
+	<xs:simpleType>
+	  <xs:restriction base="xs:string">
+	    <xs:pattern value="[0-9]{1,3}(\.[0-9]{1,3}){3}"/>
+	  </xs:restriction>
+	</xs:simpleType>
+      </xs:element>
+    </xs:all>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <!--
+      BasicType 
+    -->
+
+  <xs:complexType name="BasicType">
+    <xs:all>
+      <xs:element name="one_step_clock" default="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+    </xs:all>
+  </xs:complexType>
+
+  <!--
+      Clock type
+    -->
+  <xs:complexType name="ClockType">
+    <xs:all>
+      <xs:element name="clock_class" default="187">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="255"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="clock_accuracy" default="1us">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="25ns"/>
+            <xs:enumeration value="100ns"/>
+            <xs:enumeration value="250ns"/>
+            <xs:enumeration value="1us"/>
+            <xs:enumeration value="2,5us"/>
+            <xs:enumeration value="10us"/>
+            <xs:enumeration value="25us"/>
+            <xs:enumeration value="100us"/>
+            <xs:enumeration value="250us"/>
+            <xs:enumeration value="1ms"/>
+            <xs:enumeration value="2,5ms"/>
+            <xs:enumeration value="10ms"/>
+            <xs:enumeration value="25ms"/>
+            <xs:enumeration value="100ms"/>
+            <xs:enumeration value="250ms"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="clock_priority1" default="128">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="255"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="clock_priority2" default="128">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="255"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="domain" default="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="0"/>
+            <xs:maxInclusive value="255"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="clock_source" default="internal oscillator">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="atomic clock"/>
+            <xs:enumeration value="gps"/>
+            <xs:enumeration value="terrestrial radio"/>
+            <xs:enumeration value="ptp"/>
+            <xs:enumeration value="ntp"/>
+            <xs:enumeration value="hand set"/>
+            <xs:enumeration value="other"/>
+            <xs:enumeration value="internal oscillator"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+    </xs:all>
+  </xs:complexType>
+
+  <!--
+      IntervalsType
+    -->
+  <xs:complexType name="IntervalsType">
+    <xs:all>
+      <xs:element name="announce_interval" default="1">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-8"/>
+            <xs:maxInclusive value="64"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="sync_interval" default="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-8"/>
+            <xs:maxInclusive value="64"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="delay_req_interval" default="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:integer">
+            <xs:minInclusive value="-8"/>
+            <xs:maxInclusive value="64"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+    </xs:all>
+  </xs:complexType>
+  
+  <!-- 
+       PTPConfigType 
+    -->
+
+  <xs:complexType name="PTPConfigType">
+    <xs:sequence>
+      <xs:element name="config_ver" type="xs:string"/>
+      <xs:element name="General" type="GeneralType"/>
+      <xs:element name="Interface" type="InterfaceType" 
+                  maxOccurs="unbounded"/>
+      <xs:element name="Basic" type="BasicType"/>
+      <xs:element name="Clock" type="ClockType"/>
+      <xs:element name="Intervals" type="IntervalsType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- 
+       PTP config 
+    -->
+
+  <xs:element name="PTP_config" type="PTPConfigType"/>
+    
 </xs:schema>

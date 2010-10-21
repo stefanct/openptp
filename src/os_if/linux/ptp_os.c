@@ -38,9 +38,10 @@ static struct private_os_if oif_data;
 /**
 * Function for initializing OS interface. 
 * @param ctx clock context
+* @param cfg_file Config file name for OS interface.
 * @return ptp error code.
 */
-int initialize_os_if(struct os_ctx *ctx)
+int ptp_initialize_os_if(struct os_ctx *ctx, char* cfg_file)
 {
     struct private_os_if *oif = &oif_data;
     memset(ctx, 0, sizeof(struct os_ctx));
@@ -51,11 +52,24 @@ int initialize_os_if(struct os_ctx *ctx)
 }
 
 /**
+* Function for reconfiguring OS interface. 
+* @param ctx clock context
+* @param cfg_file Config file name for OS interface.
+* @return ptp error code.
+*/
+int ptp_reconfig_os_if(struct os_ctx *ctx, char* cfg_file)
+{
+//    struct private_os_if *oif = (struct private_os_if*) ctx->arg;
+
+    return PTP_ERR_OK;
+}
+
+/**
 * Function for closing OS interface. 
 * @param ctx clock context
 * @return ptp error code.
 */
-int close_os_if(struct os_ctx *ctx)
+int ptp_close_os_if(struct os_ctx *ctx)
 {
 //    struct private_os_if *oif = (struct private_os_if*) ctx->arg;
 

@@ -26,7 +26,7 @@
 ******************************************************************************/
 #include <ptp_config.h>
 #include <ptp_general.h>
-#include "ptp/ptp.h"
+#include <ptp.h>
 
 /**
 * Main function.

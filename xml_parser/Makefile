@@ -12,13 +12,13 @@ RM = rm -rf
 LIBS =
 INCLUDES = -I$(srcdir) -I$(srcdir)/include 
 CDEBUG = -g
-CFLAGS = $(CDEBUG) $(INCLUDES) -Wall -O0 
+CFLAGS = $(CDEBUG) $(INCLUDES) -Wall -O0 -fPIC
 AR_ARGS = rcs
 
 #### End of system configuration section. ####
 
 OBJ =  xml_parser.o
-HDR = 
+HDR = xml_parser.h
 
 PROG = libxml_parser.a
 

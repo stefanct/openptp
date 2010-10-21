@@ -45,9 +45,6 @@
 
 #define MAX_VALUE_LEN 100       // for parser
 
-//#define ASYMMETRY_CORRECTION 2400
-#define ASYMMETRY_CORRECTION 0
-
 // Constants
 #define DEFAULT_EVENT_PORT          319
 #define DEFAULT_GENERAL_PORT        320
@@ -73,17 +70,24 @@ extern struct TimeSourceCmp str_to_source[];
 extern const unsigned int str_to_source_size;
 
 struct interface_config {
-    char name[INTERFACE_NAME_LEN];
-    int enabled;
-    int multicast_ena;
+    char name[INTERFACE_NAME_LEN];///< interface name
+    int enabled;                  ///< '1' if enabled 
+    int multicast_ena;            ///< '1' if multicast PTP enabled in interface
+    /** delay asymmetry for port. This is used if delay_asymmetry_master_set==0 
+     * or delay_asymmetry_master_set==1 and delay_asymmetry_master is the
+     * clock_id of the current_master */
+    s32 delay_asymmetry;          
+    /// set to '1' if delay_asymmetry_master is set
+    int delay_asymmetry_master_set;       
+    /// Clock id for delay_asymmetry setting
+    ClockIdentity delay_asymmetry_master;
+    /// Unicast entries
     int num_unicast_addr;
     char unicast_ip[MAX_NUM_INTERFACES][IP_STR_MAX_LEN];
 };
 
 struct ptp_config {
-    int custom_clk_if;
     int debug;
-    int clock_status_file;
     int num_interfaces;
     struct interface_config interfaces[MAX_NUM_INTERFACES];
     int one_step_clock;

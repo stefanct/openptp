@@ -78,9 +78,9 @@ void ptp_bmc_run(struct ptp_ctx *ptp_ctx)
     memset(&foreign_elem_p, 0, sizeof(foreign_elem_p));
 
     // Create D0 annouce message for BMC purposes
-    ret = create_announce(ptp_ctx->ports_list_head, tmpbuf, 0);
+    ret = create_announce(ptp_ctx->ports_list_head, tmpbuf, 0, 1);
     if (ret <= 0) {
-        ERROR("D0 announce cretion failed\n");
+        ERROR("D0 announce creation failed\n");
         return;
     }
     D0 = (struct ptp_announce *) tmpbuf;
@@ -232,44 +232,17 @@ static void ptp_bmc_update(struct ptp_ctx *ptp_ctx,
     if (foreign_best) {
         state_updated =
             ptp_port_bmc_update(port_ctx, bmc_update,
-                                foreign_best->src_port_id.clock_identity);
+                                foreign_best->src_port_id.clock_identity,
+                                foreign_best->src_ip);
     } else {
-        state_updated = ptp_port_bmc_update(port_ctx, bmc_update, NULL);
+        state_updated = ptp_port_bmc_update(port_ctx, bmc_update, NULL, NULL);
     }
 
-    // If no updates -> return
-    if (!state_updated) {
-        return;
-    }
-
-    DEBUG("Update on port %p %i %s\n",
-          port_ctx, port_ctx->port_dataset.port_identity.port_number,
-          get_bmc_update_str(bmc_update));
-
-    // Now, update datasets
+    // Update changing dataset
     switch (bmc_update) {
     case BMC_MASTER_M1:
     case BMC_MASTER_M2:
-        /* Now this device becomes master and starts using its own clock 
-         * for synchronizing other devices in the network (i.e. none of 
-         * the devices ports are in slave state. */
-        ptp_ctx->clock_state = PTP_STATE_LOCAL_MASTER_CLOCK;
-
-        // give clk event
-        ptp_event_clk(&ptp_ctx->clk_ctx, PTP_CLK_MASTER, NULL);
-
-        // Current dataset
-        ptp_ctx->current_dataset.steps_removed = 0;
-        ptp_ctx->current_dataset.offset_from_master.scaled_nanoseconds = 0;
-        ptp_ctx->current_dataset.mean_path_delay.scaled_nanoseconds = 0;
-        // Parent dataset
-        memcpy(ptp_ctx->parent_dataset.parent_port_identity.clock_identity,
-               ptp_ctx->default_dataset.clock_identity,
-               sizeof(ClockIdentity));
-        ptp_ctx->parent_dataset.parent_port_identity.port_number = 0;
-        memcpy(ptp_ctx->parent_dataset.grandmaster_identity,
-               ptp_ctx->default_dataset.clock_identity,
-               sizeof(ClockIdentity));
+        // Update possible changes
         ptp_ctx->parent_dataset.grandmaster_clock_quality.clock_class =
             ptp_ctx->default_dataset.clock_quality.clock_class;
         ptp_ctx->parent_dataset.grandmaster_clock_quality.clock_accuracy =
@@ -282,7 +255,9 @@ static void ptp_bmc_update(struct ptp_ctx *ptp_ctx,
             ptp_ctx->default_dataset.priority1;
         ptp_ctx->parent_dataset.grandmaster_priority2 =
             ptp_ctx->default_dataset.priority2;
-        // Time properities dataset is updated according to local time source
+
+        // Time properities dataset is updated according 
+        // to local current time source
         ret = ptp_get_clock_properities(&ptp_ctx->clk_ctx,
                                         &ptp_ctx->time_dataset);
         if (ret != PTP_ERR_OK) {
@@ -290,31 +265,7 @@ static void ptp_bmc_update(struct ptp_ctx *ptp_ctx,
             init_time_dataset(&ptp_ctx->time_dataset);
         }
         break;
-    case BMC_MASTER_M3:
-        /* Individual port shall go to MASTER state, 
-         * but the clock is synchronized to foreign clock. */
-        break;
-    case BMC_PASSIVE_P1:
-        /* We won't be synchronizing to foreign clock, because our 
-         * own clock is so good, but the port shall not be in
-         * master state, because there is even better clock in network. */
-        ptp_ctx->clock_state = PTP_STATE_LOCAL_MASTER_CLOCK;
-        break;
-    case BMC_PASSIVE_P2:
-        /* We are synchronized on foreign clock, but not in this port.
-         * There is also good enough other master in network, so we
-         * remain silent.. */
-
-        break;
     case BMC_SLAVE_S1:
-        /* There is better clock in network than our local clock is,
-         * so we put the port in master state and start synchronizing 
-         * local clock to new master over network. */
-        ptp_ctx->clock_state = PTP_STATE_FOREIGN_MASTER_CLOCK;
-
-        // give clk event
-        ptp_event_clk(&ptp_ctx->clk_ctx, PTP_MASTER_CHANGED, NULL);
-
         // Current dataset
         ptp_ctx->current_dataset.steps_removed =
             1 + ntohs(foreign_best->msg.steps_removed);
@@ -359,6 +310,71 @@ static void ptp_bmc_update(struct ptp_ctx *ptp_ctx,
         ptp_ctx->time_dataset.ptp_timescale =
             (foreign_best->msg.hdr.flags & PTP_TIMESCALE) ? true : false;
         ptp_ctx->time_dataset.time_source = foreign_best->msg.time_source;
+        break;
+    default:
+        break;
+    }
+
+
+    // If no updates -> return
+    if (!state_updated) {
+        return;
+    }
+
+    DEBUG("Update on port %p %i %s\n",
+          port_ctx, port_ctx->port_dataset.port_identity.port_number,
+          get_bmc_update_str(bmc_update));
+
+    // Now, update datasets
+    switch (bmc_update) {
+    case BMC_MASTER_M1:
+    case BMC_MASTER_M2:
+        /* Now this device becomes master and starts using its own clock 
+         * for synchronizing other devices in the network (i.e. none of 
+         * the devices ports are in slave state. */
+        ptp_ctx->clock_state = PTP_STATE_LOCAL_MASTER_CLOCK;
+
+        // give clk event
+        ptp_event_clk(&ptp_ctx->clk_ctx, PTP_CLK_MASTER, NULL);
+
+        // Current dataset
+        ptp_ctx->current_dataset.steps_removed = 0;
+        ptp_ctx->current_dataset.offset_from_master.scaled_nanoseconds = 0;
+        ptp_ctx->current_dataset.mean_path_delay.scaled_nanoseconds = 0;
+        // Parent dataset (static)
+        memcpy(ptp_ctx->parent_dataset.parent_port_identity.clock_identity,
+               ptp_ctx->default_dataset.clock_identity,
+               sizeof(ClockIdentity));
+        ptp_ctx->parent_dataset.parent_port_identity.port_number = 0;
+        memcpy(ptp_ctx->parent_dataset.grandmaster_identity,
+               ptp_ctx->default_dataset.clock_identity,
+               sizeof(ClockIdentity));
+        break;
+    case BMC_MASTER_M3:
+        /* Individual port shall go to MASTER state, 
+         * but the clock is synchronized to foreign clock. */
+        break;
+    case BMC_PASSIVE_P1:
+        /* We won't be synchronizing to foreign clock, because our 
+         * own clock is so good, but the port shall not be in
+         * master state, because there is even better clock in network. */
+        ptp_ctx->clock_state = PTP_STATE_LOCAL_MASTER_CLOCK;
+        break;
+    case BMC_PASSIVE_P2:
+        /* We are synchronized on foreign clock, but not in this port.
+         * There is also good enough other master in network, so we
+         * remain silent.. */
+
+        break;
+    case BMC_SLAVE_S1:
+        /* There is better clock in network than our local clock is,
+         * so we put the port in master state and start synchronizing 
+         * local clock to new master over network. */
+        ptp_ctx->clock_state = PTP_STATE_FOREIGN_MASTER_CLOCK;
+
+        // give clk event
+        ptp_event_clk(&ptp_ctx->clk_ctx, PTP_MASTER_CHANGED, NULL);
+
         break;
     default:
         ERROR("BMC\n");
@@ -594,16 +610,33 @@ static int AnnounceDataComparison(struct ptp_announce *msgA,
     } else {
         // A and B have different GM, choose the one which has better GM
         DEBUG("Compare grandmasters\n");
-        DEBUG("%s\n", ptp_clk_id(msgA->grandmasterId));
-        DEBUG("%s\n", ptp_clk_id(msgB->grandmasterId));
+        DEBUG("%s pri1 %i clock_class %i clock_accuracy %i offset_scaled_log_variance %i pri2 %i\n", 
+              ptp_clk_id(msgA->grandmasterId),
+              msgA->grandmasterPri1,
+              msgA->grandmasterClkQuality.clock_class,
+              msgA->grandmasterClkQuality.clock_accuracy,
+              msgA->grandmasterClkQuality.offset_scaled_log_variance,
+              msgA->grandmasterPri2 );
+        DEBUG("%s pri1 %i clock_class %i clock_accuracy %i offset_scaled_log_variance %i pri2 %i\n", 
+              ptp_clk_id(msgB->grandmasterId),
+              msgB->grandmasterPri1,
+              msgB->grandmasterClkQuality.clock_class,
+              msgB->grandmasterClkQuality.clock_accuracy,
+              msgB->grandmasterClkQuality.offset_scaled_log_variance,
+              msgB->grandmasterPri2 );
+
 
         // Compare GM priority1 values of A and B
         if (msgA->grandmasterPri1 != msgB->grandmasterPri1) {
             if (msgA->grandmasterPri1 < msgB->grandmasterPri1) {
-                DEBUG("Erbest candidate(pri1): %s\n",
-                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity));
+                DEBUG("Erbest candidate(pri1): %s %i\n",
+                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity),
+                      msgB->grandmasterPri1);
                 return 0;       // Return A better than B
             }
+            DEBUG("Erbest candidate(pri1): %s %i\n",
+                  ptp_clk_id(msgA->hdr.src_port_id.clock_identity),
+                  msgB->grandmasterPri1);
             return 2;           // Return B better than A
         }
         // Compare GM class values of A and B
@@ -611,10 +644,14 @@ static int AnnounceDataComparison(struct ptp_announce *msgA,
                  msgB->grandmasterClkQuality.clock_class) {
             if (msgA->grandmasterClkQuality.clock_class <
                 msgB->grandmasterClkQuality.clock_class) {
-                DEBUG("Erbest candidate(clk class): %s\n",
-                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity));
+                DEBUG("Erbest candidate(clk class): %s %i\n",
+                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity),
+                      msgB->grandmasterClkQuality.clock_class);
                 return 0;       // Return A better than B
             }
+            DEBUG("Erbest candidate(clk class): %s %i\n",
+                  ptp_clk_id(msgA->hdr.src_port_id.clock_identity),
+                  msgA->grandmasterClkQuality.clock_class);
             return 2;           // Return B better than A
         }
         // Compare GM accuracy values of A and B
@@ -622,10 +659,14 @@ static int AnnounceDataComparison(struct ptp_announce *msgA,
             msgB->grandmasterClkQuality.clock_accuracy) {
             if (msgA->grandmasterClkQuality.clock_accuracy <
                 msgB->grandmasterClkQuality.clock_accuracy) {
-                DEBUG("Erbest candidate(clk accuracy): %s\n",
-                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity));
+                DEBUG("Erbest candidate(clk accuracy): %s %i\n",
+                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity),
+                      msgB->grandmasterClkQuality.clock_accuracy);
                 return 0;       // Return A better than B
             }
+            DEBUG("Erbest candidate(clk accuracy): %s %i\n",
+                  ptp_clk_id(msgA->hdr.src_port_id.clock_identity),
+                  msgA->grandmasterClkQuality.clock_accuracy);
             return 2;           // Return B better than A
         }
         // Compare GM offsetScaledLogVariance values of A and B 
@@ -636,19 +677,27 @@ static int AnnounceDataComparison(struct ptp_announce *msgA,
                 (msgA->grandmasterClkQuality.offset_scaled_log_variance) <
                 ntohs(msgB->grandmasterClkQuality.
                       offset_scaled_log_variance)) {
-                DEBUG("Erbest candidate(variance): %s\n",
-                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity));
+                DEBUG("Erbest candidate(variance): %s %i\n",
+                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity),
+                      msgB->grandmasterClkQuality.offset_scaled_log_variance);
                 return 0;       // Return A better than B
             }
+            DEBUG("Erbest candidate(variance): %s %i\n",
+                  ptp_clk_id(msgA->hdr.src_port_id.clock_identity),
+                  msgA->grandmasterClkQuality.offset_scaled_log_variance);
             return 2;           // Return B better than A
         }
         // Compare GM priority2 values of A and B
         if (msgA->grandmasterPri2 != msgB->grandmasterPri2) {
             if (msgA->grandmasterPri2 < msgB->grandmasterPri2) {
-                DEBUG("Erbest candidate(pri2): %s\n",
-                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity));
+                DEBUG("Erbest candidate(pri2): %s %i\n",
+                      ptp_clk_id(msgB->hdr.src_port_id.clock_identity),
+                      msgB->grandmasterPri2);
                 return 0;       // Return A better than B
             }
+            DEBUG("Erbest candidate(pri2): %s %i\n",
+                  ptp_clk_id(msgA->hdr.src_port_id.clock_identity),
+                  msgA->grandmasterPri2);
             return 2;           // Return B better than A
         }
         // Compare GM identity values of A and B

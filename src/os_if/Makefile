@@ -14,7 +14,7 @@ RM = rm -rf
 LIBS =
 INCLUDES = -I$(srcdir) -I$(srcdir)/linux -I$(srcdir)/../include -I$(srcdir)/../include/linux -I$(srcdir)/../ptp
 CDEBUG = -g
-CFLAGS = $(CDEBUG) $(INCLUDES) -Wall -O0 
+CFLAGS = $(CDEBUG) $(INCLUDES) -Wall -O0 -fPIC
 LDFLAGS = -g -shared
 #### End of system configuration section. ####
 

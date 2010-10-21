@@ -77,12 +77,12 @@ struct ptp_header {
     u8 domain_num;              ///< domainNumber
     u8 res;
     u16 flags;                  ///< flags
-    u64 corr_field;             ///< correctionField
+    s64 corr_field;             ///< correctionField
     u32 res1;
     struct PortIdentity src_port_id;    ///< sourcePortIdentity 
     u16 seq_id;                 ///< sequenceId
     u8 control;                 ///< control 
-    u8 log_mean_msg_interval;   ///< logMeanMessageInterval
+    s8 log_mean_msg_interval;   ///< logMeanMessageInterval
 } __attribute__ ((packed));
 
 

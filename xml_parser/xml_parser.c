@@ -28,6 +28,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <syslog.h>
 #include <values.h>
 
 #include "xml_parser.h"
@@ -35,14 +36,18 @@
 #define MAX_TAG_LENGTH          100
 
 // debug macros
-#define XML_ERROR(x...) { printf("ERROR in %s[%i]: ",__FUNCTION__, __LINE__); printf(x);}
-#if 0
-#define XML_DEBUG(x...) { printf("%s[%i]: ",__FUNCTION__, __LINE__); printf(x); }
-#define XML_DEBUG_PLAIN(x...) { printf(x); }
-#else
-#define XML_DEBUG(x...)
-#define XML_DEBUG_PLAIN(x...)
-#endif
+#define XML_DEBUG(fmt,x...) \
+    do { \
+        syslog(LOG_DAEMON | LOG_DEBUG, "%s:%i %s: " fmt, \
+                __FILE__, __LINE__, __FUNCTION__, ##x); \
+    } while(0)
+
+#define XML_ERROR(fmt,x...) \
+    do { \
+        syslog(LOG_DAEMON | LOG_ERR, "ERROR %s:%i %s: " fmt, \
+                __FILE__, __LINE__, __FUNCTION__, ##x); \
+    } while(0)
+
 
 static int search_tag_position(FILE * fp, const char *tag,
                                long *tag_start_pos);
@@ -52,6 +57,7 @@ static int search_tag_position(FILE * fp, const char *tag,
 * Search specified tag. Used to find start of section.
 * @param fp file pointer.
 * @param tag tag to find from file.
+* @param section_length remaining section length, will be updated
 * @return parser XML_ERROR code or length of the section.
 */
 int search_tag(FILE * fp, const char *tag, int section_length)
@@ -112,6 +118,7 @@ int search_tag(FILE * fp, const char *tag, int section_length)
 * @param attr_len maximum length for attribute.
 * @param attr_value store possible attribute value here.
 * @param attr_value_len maximum length for attribute value.
+* @param section_length remaining section length, will be updated
 * @return parameter length or negative parser XML_ERROR code.
 */
 int search_tag_with_attr(FILE * fp, const char *tag,
@@ -193,6 +200,7 @@ int search_tag_with_attr(FILE * fp, const char *tag,
 * @param tag tag to find from file.
 * @param value buffer to where write the value
 * @param value_len value buffer length
+* @param section_length remaining section length, will be updated
 * @return parser XML_ERROR code.
 */
 int parse_str(FILE * fp, const char *tag, char *value, int value_len,
@@ -256,6 +264,7 @@ int parse_str(FILE * fp, const char *tag, char *value, int value_len,
 * @param fp file pointer.
 * @param tag tag to find from file.
 * @param value integer to where write the value
+* @param section_length remaining section length, will be updated
 * @return parser XML_ERROR code.
 */
 int parse_int(FILE * fp, const char *tag, int *value, int *section_length)
@@ -302,7 +311,6 @@ static int search_tag_position(FILE * fp, const char *tag,
     XML_DEBUG("find <%s>\n", tag);
 
     while ((c = getc(fp)) != EOF) {
-        //XML_DEBUG_PLAIN("%c", c);
         if (c == '<') {
             // tag start
             for (i = 0;

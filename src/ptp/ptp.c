@@ -24,6 +24,10 @@
 /******************************************************************************
 * $Id$
 ******************************************************************************/
+#include <signal.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+
 #include <ptp_general.h>
 #include <ptp_message.h>
 #include <packet_if.h>
@@ -36,9 +40,34 @@
 
 /// Main data
 struct ptp_ctx ptp_ctx;
+int socket_restart = 0;
 
 #define FRAME_LEN 500
-#define SEC_IN_NS   1000000000
+
+// Local data
+static int trigger_reconfiguration = 0;
+static struct sigaction sigaction_data;
+static int daemon_running = 1;
+
+// Local functions
+static void signal_handler(int signal_number);
+static void reconfig_ptp();
+
+/**
+ * Help.
+ */
+static void print_help(char *function)
+{
+    printf("%s <parameters>\n", function);
+    printf("  -c <file>\t\tClock interface configuration file\n");
+    printf("  -p <file>\t\tPacket interface configuration file\n");
+    printf("  -o <file>\t\tOS interface configuration file\n");
+    printf("  -D\t\t\tEnable logging debug messages\n");
+    printf("  -h\t\t\tThis help\n");
+    printf("Signals\n");
+    printf("  USR1\t\t\tenable logging debug messages\n");
+    printf("  HUP\t\t\ttrigger reconfiguration\n");
+}
 
 /**
 * PTP main.
@@ -50,44 +79,135 @@ void ptp_main(int argc, char *argv[])
     struct ptp_port_ctx *port = NULL;
     int ret = 0;
     char frame[FRAME_LEN];
+    char peer_ip[IP_STR_MAX_LEN];
     struct Timestamp time;
     int len = FRAME_LEN;
     int port_num = 0;
-    struct Timestamp current_time, next_time, tmp_time;
+    struct Timestamp current_time, prev_time, next_time, tmp_time;
     u32 min_timeout_usec = 0;
-    char *file = 0;
+    int debug = 0;
+    int daemonize = 0;
+    char c;
+    pid_t pid, sid;
 
-    if (argc != 2) {
-        file = DEFAULT_CFG_FILE;
-    } else {
-        file = argv[1];
+    // Clean context
+    memset(&ptp_ctx, 0, sizeof(struct ptp_ctx));
+
+    openlog("openptp", LOG_PID, LOG_DAEMON);
+
+    // parse command line arguments
+    while ((c = getopt(argc, argv, "c:p:o:fDh")) != -1) {
+        switch (c) {
+        case 'c': // Clock if configuration file
+            ptp_ctx.clock_if_file = strdup(optarg);
+            break;
+        case 'p': // Packet if configuration file
+            ptp_ctx.packet_if_file = strdup(optarg);
+            break;
+        case 'o': // OS if configuration file
+            ptp_ctx.os_if_file = strdup(optarg);
+            break;
+        case 'f': // fork as daemon
+            daemonize = 1;
+            break;
+        case 'D': // debug
+            debug = 1;
+            break;
+        case 'h':              // help
+        default:
+            print_help(argv[0]);
+            return;
+        }
     }
+
+    // daemonize
+    if (daemonize == 1){
+        pid = fork();
+        if (pid < 0) {
+            ERROR("fork\n");
+            exit(EXIT_FAILURE);
+        }
+        // Exit parent
+        if (pid > 0) {
+            exit(EXIT_SUCCESS);
+        }
+        
+        // Change file mask
+        umask(0);
+        
+        // Create a new SID for the child 
+        sid = setsid();
+        if (sid < 0) {
+            ERROR("setsid\n");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Change working dir
+        if ((chdir("/")) < 0) {
+            ERROR("chdir\n");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Redirect standard streams to /dev/null
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        open("/dev/null", O_RDONLY);
+        open("/dev/null", O_WRONLY);
+        dup(STDOUT_FILENO);
+    }
+
+    if (optind < argc ) {
+        ptp_ctx.ptp_cfg_file = strdup(argv[optind]);
+    } 
 
     memset(&ptp_cfg, 0, sizeof(struct ptp_config));
-    ptp_cfg.debug = 1;
+    ptp_cfg.debug = debug;
 
-    ret = read_initialization(file);
-    if (ret != PTP_ERR_OK) {
-        ERROR("CFG file read %s\n", file);
-        return;
+    // Add signal handler
+    memset(&sigaction_data, 0, sizeof(struct sigaction));
+    sigaction_data.sa_handler = signal_handler;
+    
+    if (sigaction(SIGUSR1, &sigaction_data, NULL) != 0) {
+        ERROR("Register signal handler failed\n");
     }
-    // Init all context
-    memset(&ptp_ctx, 0, sizeof(struct ptp_ctx));
-    ptp_ctx.ports_list_head = 0;
+    if (sigaction(SIGHUP, &sigaction_data, NULL) != 0) {
+        ERROR("Register signal handler failed\n");
+    }
+    if (sigaction(SIGINT, &sigaction_data, NULL) != 0) {
+        ERROR("Register signal handler failed\n");
+    }
+    if (sigaction(SIGTERM, &sigaction_data, NULL) != 0) {
+        ERROR("Register signal handler failed\n");
+    }
 
+    if( ptp_ctx.ptp_cfg_file ){
+        ret = read_initialization(ptp_ctx.ptp_cfg_file);
+        if (ret != PTP_ERR_OK) {
+            ERROR("CFG file read %s\n", ptp_ctx.ptp_cfg_file);
+        }
+    }
+
+    // Init all context
+    ptp_ctx.ports_list_head = 0;
+    memset(&ptp_ctx.default_dataset, 0, sizeof(struct DefaultDataSet));
     init_default_dataset(&ptp_ctx.default_dataset);
 
-    ret = ptp_initialize_packet_if(&ptp_ctx.pkt_ctx);
+    ret = ptp_initialize_packet_if(&ptp_ctx.pkt_ctx, 
+                                   ptp_ctx.packet_if_file);
     if (ret != 0) {
         ERROR("ptp_initialize_packet_if\n");
         return;
     }
-    ret = initialize_os_if(&ptp_ctx.os_ctx);
+    ret = ptp_initialize_os_if(&ptp_ctx.os_ctx,
+                               ptp_ctx.os_if_file);
     if (ret != 0) {
         ERROR("initialize_os_if\n");
         return;
     }
-    ret = ptp_initialize_clock_if(&ptp_ctx.clk_ctx, file);
+
+    ret = ptp_initialize_clock_if(&ptp_ctx.clk_ctx, 
+                                  ptp_ctx.clock_if_file);
     if (ret != 0) {
         ERROR("ptp_initialize_clock_if\n");
         return;
@@ -98,10 +218,26 @@ void ptp_main(int argc, char *argv[])
     init_time_dataset(&ptp_ctx.time_dataset);
     init_sec_dataset(&ptp_ctx.sec_dataset);
 
-    while (1) {
-        ptp_get_time(&ptp_ctx.clk_ctx, &current_time);
+    // Init prev time
+    ptp_get_time(&ptp_ctx.clk_ctx, &prev_time);
 
-    /** We do control loop in different phases:
+    while (daemon_running) {
+        ptp_get_time(&ptp_ctx.clk_ctx, &current_time);
+        
+        // Check if current time has updated to older,
+        // if yes, clock has been set backwards and we must
+        // restart port state to get timers fixed to new time         
+        if( older_timestamp(&prev_time, &current_time) ==
+            &current_time ){
+            DEBUG("Clock has gone to history, restart ports\n");
+            for (port = ptp_ctx.ports_list_head; port != NULL;
+                 port = port->next) {
+                 ptp_port_state_update(port, PORT_INITIALIZING);
+            }
+        }
+        copy_timestamp(&prev_time, &current_time);
+
+        /** We do control loop in different phases:
         * 1. check ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES timers for every port.
         * 2. run BMC.
         * 3. run statemachine for every port.
@@ -143,26 +279,123 @@ void ptp_main(int argc, char *argv[])
         // ptp_receive will sleep min_timeout_usec if no data is received
         len = FRAME_LEN;
         while (ptp_receive(&ptp_ctx.pkt_ctx, &min_timeout_usec,
-                           &port_num, frame, &len, &time) == PTP_ERR_OK) {
+                           &port_num, frame, &len, &time,
+                           peer_ip ) == PTP_ERR_OK) {
             for (port = ptp_ctx.ports_list_head;
                  port != NULL; port = port->next) {
                 if (port->port_dataset.port_identity.port_number ==
                     port_num) {
-                    ptp_port_recv(port, frame, len, &time);
+                    ptp_port_recv(port, frame, len, &time, peer_ip);
                     break;
                 }
             }
             if (port == NULL) {
                 ERROR("frame from unconfigured port %i\n", port_num);
             }
+
             ptp_get_time(&ptp_ctx.clk_ctx, &current_time);
+            // Check if current time has updated to older,
+            // if yes, break out the receive loop
+            if( older_timestamp(&prev_time, &current_time) ==
+                &current_time ){
+                DEBUG("Clock has gone to history, break\n");
+                break;
+            }
             timeout(&current_time, &next_time, &tmp_time);
             DEBUG("Timeout [%us %uns]\n",
-                  (u32) tmp_time.seconds, tmp_time.nanoseconds);
+                  (u32) tmp_time.seconds, 
+                  tmp_time.nanoseconds);
             min_timeout_usec =
                 tmp_time.seconds * 1000000 + tmp_time.nanoseconds / 1000;
             len = FRAME_LEN;
         }
+        // Check if reconfiguration request is pending
+        if( trigger_reconfiguration ){
+            reconfig_ptp();
+            trigger_reconfiguration = 0;
+        } 
+        // Check if socket is broken
+        if( socket_restart ){
+            ptp_close_packet_if(&ptp_ctx.pkt_ctx);
+            ptp_initialize_packet_if(&ptp_ctx.pkt_ctx, 
+                                     ptp_ctx.packet_if_file);
+            socket_restart = 0;
+        }
+    }
+    
+    ptp_close_clock_if(&ptp_ctx.clk_ctx);
+    ptp_close_os_if(&ptp_ctx.os_ctx);
+    ptp_close_packet_if(&ptp_ctx.pkt_ctx);
+    
+    DEBUG("PTP closed\n");
+}
+
+/**
+ * Reconfiguration signal handler.
+ * @param signal_number Signal number.
+ */
+static void signal_handler(int signal_number)
+{
+    switch(signal_number){
+    case SIGUSR1:
+        ptp_cfg.debug = 1;
+        break;
+    case SIGHUP:
+        trigger_reconfiguration = 1;
+        break;
+    default:
+        daemon_running = 0;
+        break;
+    }
+}
+
+/**
+ * Do reconfiguration.
+ */
+static void reconfig_ptp()
+{
+    struct ptp_port_ctx *ctx = 0;
+    int ret = 0;
+
+    if( ptp_ctx.ptp_cfg_file ){
+        DEBUG("Reconfig PTP\n");
+        ret = read_initialization(ptp_ctx.ptp_cfg_file);
+        if (ret != PTP_ERR_OK) {
+            ERROR("CFG file read %s\n", ptp_ctx.ptp_cfg_file);
+        }
+    }
+
+    // Init default dataset
+    init_default_dataset(&ptp_ctx.default_dataset);
+
+    ret = ptp_reconfig_packet_if(&ptp_ctx.pkt_ctx, 
+                                 ptp_ctx.packet_if_file);
+    if (ret != 0) {
+        ERROR("ptp_reconfig_packet_if\n");
+    }
+
+    ret = ptp_reconfig_os_if(&ptp_ctx.os_ctx,
+                             ptp_ctx.os_if_file);
+    if (ret != 0) {
+        ERROR("ptp_reconfig_os_if\n");
+    }
+
+    ret = ptp_reconfig_clock_if(&ptp_ctx.clk_ctx, 
+                                ptp_ctx.clock_if_file);
+    if (ret != 0) {
+        ERROR("ptp_reconfig_clock_if\n");
+    }
+
+    init_current_dataset(&ptp_ctx.current_dataset);
+    init_parent_dataset(&ptp_ctx.parent_dataset);
+    init_time_dataset(&ptp_ctx.time_dataset);
+    init_sec_dataset(&ptp_ctx.sec_dataset);
+
+    ctx = ptp_ctx.ports_list_head;
+    while (ctx != NULL) {
+        init_port_dataset( &ctx->port_dataset );
+        ptp_port_state_update(ctx, PORT_INITIALIZING);
+        ctx = ctx->next;
     }
 }
 
@@ -231,25 +464,50 @@ void inc_timestamp(struct Timestamp *base, struct Timestamp *inc)
 * @param base time.
 * @param add time to increment to base, in 2^16 ns format.
 */
-void add_correction(struct Timestamp *base, u64 add)
+void add_correction(struct Timestamp *base, s64 add)
 {
-    u32 frac_nanoseconds = 0;
+    u64 subn = 0, tmp = 0;
 
-    DEBUG("Add 0x%llx\n", add);
+    DEBUG("Add 0x%llx/%lli\n", add, add);
     DEBUG("To  0x%llxs 0x%x.%04x\n",
-          base->seconds, base->nanoseconds, base->frac_nanoseconds);
+          base->seconds, 
+          base->nanoseconds, 
+          base->frac_nanoseconds);
 
-    frac_nanoseconds = base->frac_nanoseconds + (add & 0xFFFF);
-    if (frac_nanoseconds > 65536 - 1) {
-        base->nanoseconds += 1;
+    if( add == 0 ){
+        // No correction to add 
+        return;
     }
-    base->frac_nanoseconds = frac_nanoseconds & 0xFFFF;
-    base->nanoseconds += (add >> 16) % SEC_IN_NS;
-    if (base->nanoseconds >= SEC_IN_NS) {
+
+    // Convert nanosecond and frac_nsec part of Timestamp to u64 
+    subn = (((u64)base->nanoseconds) << 16) + (u64)base->frac_nanoseconds;
+
+    // if addition is negative
+    if( add < 0 ){ 
+        // to prevent overflow (63 bit correction), use u64 for calculations
+        tmp = (u64)(-add);
+        while( tmp > subn ){
+            // Add one second to subn, and decrement timestamp with one second
+            // NOTE: it is not possible to subn to overflow here
+            subn += ( ((u64)SEC_IN_NS) << 16 );
+            base->seconds -= 1;
+        }
+        // Now subn is bigger than tmp, we can safely decrement tmp from subn
+        subn -= tmp;
+    }
+    else { // positive addition
+        subn += add;
+    }
+
+    // Get back to Timestamp format, first convert nanoseconds part
+    while( (subn >> 16) > SEC_IN_NS ){
         base->seconds += 1;
-        base->nanoseconds -= SEC_IN_NS;
+        subn -= ( ((u64)SEC_IN_NS) << 16 );
     }
-    base->seconds += (add >> 16) / SEC_IN_NS;
+    base->nanoseconds = subn >> 16;
+    // The rest is fractional subnanoseconds.
+    base->frac_nanoseconds = subn & 0xffff;
+
     DEBUG("END 0x%llxs 0x%x.%04x\n",
           base->seconds, base->nanoseconds, base->frac_nanoseconds);
 }
@@ -339,8 +597,8 @@ struct Timestamp *older_timestamp(struct Timestamp *t1,
         return t2;
     }
     // no difference, check frac_nanoseconds
-    if (t1->frac_nanoseconds > t2->frac_nanoseconds) {
-        return t2;
+    if (t1->frac_nanoseconds < t2->frac_nanoseconds) {
+        return t1;
     }
     // if t2 is older or timestamps are equal, return t2    
     return t2;
@@ -417,8 +675,6 @@ u32 power2(s32 exp, u32 * nanosecs)
 */
 void init_default_dataset(struct DefaultDataSet *default_dataset)
 {
-
-    memset(default_dataset, 0, sizeof(struct DefaultDataSet));
     if (ptp_cfg.one_step_clock == 0) {
         default_dataset->two_step_clock = true; // TRUE for two_step clock
     } else {
@@ -525,6 +781,17 @@ void init_time_dataset(struct TimeProperitiesDataSet *time_dataset)
 void init_sec_dataset(struct SecurityDataSet *sec_dataset)
 {
     memset(sec_dataset, 0, sizeof(struct SecurityDataSet));
+}
+
+/**
+* Init port dataset.
+* @param port_dataset dataset.
+*/
+void init_port_dataset(struct PortDataSet *port_dataset)
+{
+    port_dataset->log_mean_announce_interval = ptp_cfg.announce_interval;
+    port_dataset->log_mean_sync_interval = ptp_cfg.sync_interval;
+    port_dataset->log_min_mean_delay_req_interval = ptp_cfg.delay_req_interval;
 }
 
 /**

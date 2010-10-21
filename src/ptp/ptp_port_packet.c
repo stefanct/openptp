@@ -38,8 +38,12 @@
 * @param port_num port number.
 * @param identity clock identity.
 * @param unicast_port Flag to indicate that port is using unicast.
+* @param if_config Interface configuration.
 */
-void ptp_new_port(int port_num, ClockIdentity identity, bool unicast_port)
+void ptp_new_port(int port_num, 
+                  ClockIdentity identity, 
+                  bool unicast_port,
+                  struct interface_config* if_config )
 {
     struct ptp_port_ctx *ctx = ptp_ctx.ports_list_head;
 
@@ -60,27 +64,35 @@ void ptp_new_port(int port_num, ClockIdentity identity, bool unicast_port)
     }
     memset(ctx, 0, sizeof(struct ptp_port_ctx));
     ctx->unicast_port = unicast_port;
+    ctx->delay_asymmetry = if_config->delay_asymmetry;
+    if( if_config->delay_asymmetry_master_set ){
+        ctx->delay_asymmetry_master_set = 1;
+        memcpy(ctx->delay_asymmetry_master,
+               if_config->delay_asymmetry_master,
+               sizeof(ClockIdentity));
+    }
+    strncpy(ctx->name, if_config->name, INTERFACE_NAME_LEN);
 
     // Init portdataset
     memcpy(ctx->port_dataset.port_identity.clock_identity,
            identity, sizeof(ClockIdentity));
     ctx->port_dataset.port_identity.port_number = port_num;
-    ctx->port_dataset.log_mean_announce_interval =
-        ptp_cfg.announce_interval;
-    ctx->port_dataset.log_mean_sync_interval = ptp_cfg.sync_interval;
-    ctx->port_dataset.log_min_mean_delay_req_interval =
-        ptp_cfg.delay_req_interval;
+
+    // Init data from config file
+    init_port_dataset( &ctx->port_dataset );
+
     ctx->port_dataset.version_number = PTP_VERSION;
     ctx->port_dataset.announce_receipt_timeout = ANNOUNCE_WINDOW;
     ctx->port_dataset.delay_mechanism = DELAY_DISABLED;
-
+    
     ptp_port_state_update(ctx, PORT_INITIALIZING);
 
     /* Update default dataset (not needed for every port registration, 
      * because this is static) */
-    if (ptp_ctx.default_dataset.num_ports == 0) {
+    if (port_num == 1) {
         // Set first port identity as clock identity
-        memcpy(ptp_ctx.default_dataset.clock_identity, identity, sizeof(ClockIdentity));        // Local clock identity
+        memcpy(ptp_ctx.default_dataset.clock_identity, 
+               identity, sizeof(ClockIdentity));// Local clock identity
     }
     ptp_ctx.default_dataset.num_ports++;
 
@@ -88,7 +100,9 @@ void ptp_new_port(int port_num, ClockIdentity identity, bool unicast_port)
     ctx->next = ptp_ctx.ports_list_head;
     ptp_ctx.ports_list_head = ctx;
 
-    DEBUG("Added port %i %p %s\n", port_num, ctx, ptp_clk_id(identity));
+    DEBUG("Added port %i/%i %p %s\n", 
+          port_num, ptp_ctx.default_dataset.num_ports, 
+          ctx, ptp_clk_id(identity));
 }
 
 /**
@@ -152,8 +166,6 @@ void ptp_frame_sent(int port_num,
         ERROR("Port not found\n");
         return;
     }
-    // Fix timestamp, add subnanoseconds
-    add_correction(sent_time, ntohll(msg_hdr->corr_field));
 
     switch (msg_hdr->msg_type & 0x0f) {
     case PTP_SYNC:
@@ -169,12 +181,16 @@ void ptp_frame_sent(int port_num,
                 DEBUG("Send Follow up\n");
                 ret = ptp_send(&ptp_ctx.pkt_ctx, PTP_FOLLOW_UP,
                                port_num, tmpbuf, ret);
+                if( ret != PTP_ERR_OK ){
+                    socket_restart = 1;
+                }
             }
         }
         break;
     case PTP_DELAY_REQ:
         DEBUG("delay_req sent, store timestamp\n");
-        // Store timestamp
+        // Store timestamp and seq_id
+        ctx->delay_req_seqid_sent = ntohs(msg_hdr->seq_id);
         copy_timestamp(&ctx->delay_req_send_time, sent_time);
         break;
     default:

@@ -52,6 +52,7 @@ struct linux_if_interface {
     int unicast_entry;          ///< set to 1 if unicast destination
     struct in_addr net_addr;    ///< destination IP addr
     u8 hw_addr[IFHWADDRLEN];
+    struct interface_config *if_config; ///< pointer to associated if config
 };
 
 /**
@@ -70,7 +71,8 @@ static int locate_interfaces(struct linux_packet_if *pif);
 // function for receiving PTP message from socket
 static int ptp_receive_msg(struct linux_packet_if *pif, int sock,
                            int *if_index, char *frame, int *length,
-                           struct Timestamp *recv_time);
+                           struct Timestamp *recv_time,
+                           struct sockaddr_in *from_addr);
 // interface location
 static struct linux_if_interface *get_interface(struct linux_packet_if
                                                 *pif, int *if_index,
@@ -94,9 +96,10 @@ static int if_configured(char *if_name);
 /**
 * Function for initializing packet interface. 
 * @param ctx packet if context
+* @param cfg_file Config file name for packet interface.
 * @return ptp error code.
 */
-int ptp_initialize_packet_if(struct packet_ctx *ctx)
+int ptp_initialize_packet_if(struct packet_ctx *ctx, char* cfg_file)
 {
     struct linux_packet_if *pif = &packet_if_data;
     struct sockaddr_in saddr;
@@ -233,34 +236,18 @@ int ptp_initialize_packet_if(struct packet_ctx *ctx)
         return PTP_ERR_NET;
     }
 
-    if (ptp_cfg.custom_clk_if == 1) {
-        tmp = 0;                // disable multicast loopback 
-        if (setsockopt(pif->event_sock, IPPROTO_IP, IP_MULTICAST_LOOP,
-                       &tmp, sizeof(int)) != 0) {
-            perror("setsockopt");
-            ERROR("\n");
-            return PTP_ERR_NET;
-        }
-        if (setsockopt(pif->gen_sock, IPPROTO_IP, IP_MULTICAST_LOOP,
-                       &tmp, sizeof(int)) != 0) {
-            perror("setsockopt");
-            ERROR("\n");
-            return PTP_ERR_NET;
-        }
-    } else {
-        tmp = 1;                // enable multicast loopback 
-        if (setsockopt(pif->event_sock, IPPROTO_IP, IP_MULTICAST_LOOP,
-                       &tmp, sizeof(int)) != 0) {
-            perror("setsockopt");
-            ERROR("\n");
-            return PTP_ERR_NET;
-        }
-        if (setsockopt(pif->gen_sock, IPPROTO_IP, IP_MULTICAST_LOOP,
-                       &tmp, sizeof(int)) != 0) {
-            perror("setsockopt");
-            ERROR("\n");
-            return PTP_ERR_NET;
-        }
+    tmp = 1;                // enable multicast loopback 
+    if (setsockopt(pif->event_sock, IPPROTO_IP, IP_MULTICAST_LOOP,
+                   &tmp, sizeof(int)) != 0) {
+        perror("setsockopt");
+        ERROR("\n");
+        return PTP_ERR_NET;
+    }
+    if (setsockopt(pif->gen_sock, IPPROTO_IP, IP_MULTICAST_LOOP,
+                   &tmp, sizeof(int)) != 0) {
+        perror("setsockopt");
+        ERROR("\n");
+        return PTP_ERR_NET;
     }
 
     tmp = 1;                    // enable receiving of timestamps on both ports
@@ -326,10 +313,25 @@ int ptp_initialize_packet_if(struct packet_ctx *ctx)
     }
 
     for (if_num = 0; if_num < pif->num_interfaces; if_num++) {
-        ptp_new_port(if_num_to_port_num(if_num), identity,
-                     pif->interfaces[if_num].unicast_entry);
+        ptp_new_port(if_num_to_port_num(if_num), 
+                     identity,
+                     pif->interfaces[if_num].unicast_entry,
+                     pif->interfaces[if_num].if_config);
     }
     DEBUG("pif: %p\n", pif);
+
+    return PTP_ERR_OK;
+}
+
+/**
+* Function for reconfiguring packet interface. 
+* @param ctx packet if context
+* @param cfg_file Config file name for packet interface.
+* @return ptp error code.
+*/
+int ptp_reconfig_packet_if(struct packet_ctx *ctx, char* cfg_file)
+{
+//    struct linux_packet_if *pif = (struct linux_packet_if*)ctx->arg;
 
     return PTP_ERR_OK;
 }
@@ -467,12 +469,16 @@ int ptp_send(struct packet_ctx *ctx,
 * @param frame buffer for received frame.
 * @param length frame buffer length.
 * @param recv_time timestamp for received frame.
+* @param peer_addr Peer address returned here if not NULL.
 * @return ptp error code.
 */
 int ptp_receive(struct packet_ctx *ctx,
                 u32 * timeout_usec,
                 int *port_num,
-                char *frame, int *length, struct Timestamp *recv_time)
+                char *frame, 
+                int *length, 
+                struct Timestamp *recv_time,
+                char *peer_addr)
 {
     struct linux_packet_if *pif = (struct linux_packet_if *) ctx->arg;
     int ret = PTP_ERR_OK;
@@ -480,6 +486,7 @@ int ptp_receive(struct packet_ctx *ctx,
     fd_set rd_fd;
     int recv_buffer_len = *length;
     int if_index = 0;
+    struct sockaddr_in from_addr;
 
     FD_ZERO(&rd_fd);
     FD_SET(pif->event_sock, &rd_fd);
@@ -514,11 +521,12 @@ int ptp_receive(struct packet_ctx *ctx,
 
         *length = recv_buffer_len;
         ret = ptp_receive_msg(pif, pif->event_sock, &if_index,
-                              frame, length, recv_time);
+                              frame, length, recv_time, &from_addr);
+        
         if (ret != PTP_ERR_OK) {
             *length = recv_buffer_len;
             ret = ptp_receive_msg(pif, pif->gen_sock, &if_index,
-                                  frame, length, recv_time);
+                                  frame, length, recv_time, &from_addr);
         }
         if (ret == PTP_ERR_OK) {
             // Message received successfully, do sanity check for the frame.
@@ -586,9 +594,14 @@ int ptp_receive(struct packet_ctx *ctx,
                     goto restart_recv;  // frame consumed, restart recv process.
                 }
                 DEBUG("OWN frame\n");
+
                 ptp_frame_sent(*port_num, hdr, PTP_ERR_OK, recv_time);
                 goto restart_recv;      // frame consumed, restart recv process.
             }
+            // Store peer IP
+            if( peer_addr ){
+                inet_aton(peer_addr, &from_addr.sin_addr);
+            } 
         }
     }
 
@@ -603,17 +616,19 @@ int ptp_receive(struct packet_ctx *ctx,
 * @param frame buffer for received frame.
 * @param length frame buffer length.
 * @param recv_time timestamp for received frame.
+* @param from_addr Place for peer IP address.
 * @return ptp error code.
 */
 static int ptp_receive_msg(struct linux_packet_if *pif,
                            int sock,
                            int *if_index,
                            char *frame,
-                           int *length, struct Timestamp *recv_time)
+                           int *length, 
+                           struct Timestamp *recv_time,
+                           struct sockaddr_in *from_addr )
 {
     struct msghdr info_msg;
     struct iovec vec[1];
-    struct sockaddr_in from_addr;
     union {
         struct cmsghdr cmsg;
         char buf[CMSG_SPACE(sizeof(struct in_pktinfo)) +
@@ -632,10 +647,10 @@ static int ptp_receive_msg(struct linux_packet_if *pif,
     vec[0].iov_len = *length;
 
     memset(&info_msg, 0, sizeof(struct msghdr));
-    memset(&from_addr, 0, sizeof(struct sockaddr_in));
+    memset(from_addr, 0, sizeof(struct sockaddr_in));
     memset(&cmsg_data, 0, sizeof(cmsg_data));
 
-    info_msg.msg_name = (caddr_t) & from_addr;
+    info_msg.msg_name = (caddr_t) from_addr;
     info_msg.msg_namelen = sizeof(struct sockaddr_in);
     info_msg.msg_iov = vec;
     info_msg.msg_iovlen = 1;
@@ -713,7 +728,7 @@ static int locate_interfaces(struct linux_packet_if *pif)
     ifdata.ifc_len = sizeof(dev);
     ifdata.ifc_req = dev;
     memset(ifdata.ifc_buf, 0, ifdata.ifc_len);
-    flags = IFF_UP | IFF_RUNNING | IFF_MULTICAST;
+    flags = IFF_UP | /*IFF_RUNNING |*/ IFF_MULTICAST;
 
     // Get list of interfaces
     if (ioctl(pif->event_sock, SIOCGIFCONF, &ifdata) < 0) {
@@ -785,6 +800,8 @@ static int locate_interfaces(struct linux_packet_if *pif)
                     ERROR("\n");
                     return PTP_ERR_NET;
                 }
+                pif->interfaces[pif->num_interfaces].if_config = 
+                    &ptp_cfg.interfaces[cfg_if_index];
 
                 ret = PTP_ERR_OK;
                 pif->num_interfaces++;
@@ -813,6 +830,10 @@ static int locate_interfaces(struct linux_packet_if *pif)
                 memcpy(pif->interfaces[pif->num_interfaces].hw_addr,
                        hw_addr, IFHWADDRLEN);
                 pif->interfaces[pif->num_interfaces].if_addr = if_addr;
+
+                pif->interfaces[pif->num_interfaces].if_config = 
+                    &ptp_cfg.interfaces[cfg_if_index];
+
                 ret = PTP_ERR_OK;
                 pif->num_interfaces++;
                 if (pif->num_interfaces >= MAX_NUM_INTERFACES) {

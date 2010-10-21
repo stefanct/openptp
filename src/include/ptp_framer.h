@@ -54,9 +54,10 @@ int create_follow_up(struct ptp_port_ctx *ctx, char *buf,
 * @param ctx Port context.
 * @param buf Buffer to which frame is created.
 * @param seqid Sequence id.
+* @param local if true, use data from defaut dataset (instead of parent).
 * @return size of the created frame.
 */
-int create_announce(struct ptp_port_ctx *ctx, char *buf, u16 seq_id);
+int create_announce(struct ptp_port_ctx *ctx, char *buf, u16 seq_id, int local);
 
 /**
 * Function for creating PTP Delay_Req message.

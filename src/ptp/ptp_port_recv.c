@@ -40,7 +40,8 @@ static void ptp_port_recv_follow_up(struct ptp_port_ctx *ctx,
                                     struct Timestamp *time);
 static void ptp_port_recv_announce(struct ptp_port_ctx *ctx,
                                    struct ptp_announce *msg,
-                                   struct Timestamp *time);
+                                   struct Timestamp *time, 
+                                   char* peer_ip);
 static void ptp_port_recv_delay_req(struct ptp_port_ctx *ctx,
                                     struct ptp_delay_req *msg,
                                     struct Timestamp *time);
@@ -49,14 +50,18 @@ static void ptp_port_recv_delay_resp(struct ptp_port_ctx *ctx,
                                      struct Timestamp *time);
 
 /**
-* Function for handling all received PTP messages for port.
+* Function for handling received PTP messages for port.
 * @param ctx Port context.
 * @param buf PTP message.
 * @param len msg length.
 * @param time timestamp for received frame.
+* @param peer_ip IP address of the sender of this message.
 */
 void ptp_port_recv(struct ptp_port_ctx *ctx,
-                   char *buf, int len, struct Timestamp *time)
+                   char *buf, 
+                   int len, 
+                   struct Timestamp *time,
+                   char* peer_ip)
 {
     struct ptp_header *hdr = (struct ptp_header *) buf;
 
@@ -71,7 +76,8 @@ void ptp_port_recv(struct ptp_port_ctx *ctx,
               time->seconds,
               time->nanoseconds,
               time->frac_nanoseconds,
-              ntohll(hdr->corr_field), ntohs(hdr->seq_id));
+              ntohll(hdr->corr_field), 
+              ntohs(hdr->seq_id));
         ptp_port_recv_sync(ctx, (struct ptp_sync *) hdr, time);
         break;
     case PTP_FOLLOW_UP:
@@ -79,7 +85,8 @@ void ptp_port_recv(struct ptp_port_ctx *ctx,
               time->seconds,
               time->nanoseconds,
               time->frac_nanoseconds,
-              ntohll(hdr->corr_field), ntohs(hdr->seq_id));
+              ntohll(hdr->corr_field), 
+              ntohs(hdr->seq_id));
         ptp_port_recv_follow_up(ctx, (struct ptp_follow_up *) hdr, time);
         break;
     case PTP_DELAY_REQ:
@@ -87,7 +94,8 @@ void ptp_port_recv(struct ptp_port_ctx *ctx,
               time->seconds,
               time->nanoseconds,
               time->frac_nanoseconds,
-              ntohll(hdr->corr_field), ntohs(hdr->seq_id));
+              ntohll(hdr->corr_field), 
+              ntohs(hdr->seq_id));
         ptp_port_recv_delay_req(ctx, (struct ptp_delay_req *) hdr, time);
         break;
     case PTP_ANNOUNCE:
@@ -95,15 +103,17 @@ void ptp_port_recv(struct ptp_port_ctx *ctx,
               time->seconds,
               time->nanoseconds,
               time->frac_nanoseconds,
-              ntohll(hdr->corr_field), ntohs(hdr->seq_id));
-        ptp_port_recv_announce(ctx, (struct ptp_announce *) hdr, time);
+              ntohll(hdr->corr_field), 
+              ntohs(hdr->seq_id));
+        ptp_port_recv_announce(ctx, (struct ptp_announce *) hdr, time, peer_ip);
         break;
     case PTP_DELAY_RESP:
         DEBUG("PTP_DELAY_RESP 0x%012llxs 0x%08x.%04xns(0x%llx): %i\n",
               time->seconds,
               time->nanoseconds,
               time->frac_nanoseconds,
-              ntohll(hdr->corr_field), ntohs(hdr->seq_id));
+              ntohll(hdr->corr_field), 
+              ntohs(hdr->seq_id));
         ptp_port_recv_delay_resp(ctx, (struct ptp_delay_resp *) hdr, time);
         break;
     case PTP_PDELAY_REQ:
@@ -127,6 +137,7 @@ static void ptp_port_recv_sync(struct ptp_port_ctx *ctx,
                                struct ptp_sync *msg,
                                struct Timestamp *time)
 {
+    int64_t delay_asymmetry = 0;
     DEBUG("\n");
 
     // Check port state
@@ -144,17 +155,34 @@ static void ptp_port_recv_sync(struct ptp_port_ctx *ctx,
                    msg->hdr.src_port_id.clock_identity,
                    sizeof(ClockIdentity)) == 0) {
             DEBUG("Sync from current master %i\n", ntohs(msg->hdr.seq_id));
+
+            // Check if we need to do asymmetry correction
+            if( ctx->delay_asymmetry_master_set ){
+                if( !memcmp(ctx->delay_asymmetry_master,
+                            ctx->current_master,
+                            sizeof(ClockIdentity))){
+                    delay_asymmetry = ctx->delay_asymmetry;
+                }
+            }
+            else {
+                delay_asymmetry = ctx->delay_asymmetry;
+            }
+
+            // Scale delay asymmetry from ps to ns.sns 
+            delay_asymmetry = (delay_asymmetry << 16)/1000;
+
+
             if (!(msg->hdr.flags & PTP_TWO_STEP)) {
                 // ONE_STEP master->sync local clk
                 struct Timestamp master_time;
                 ptp_convert_timestamp(&master_time, msg->origin_tstamp);
                 add_correction(&master_time,
-                               ntohll(msg->hdr.corr_field) +
-                               ASYMMETRY_CORRECTION);
+                               ntohll(msg->hdr.corr_field) + delay_asymmetry);
                 ptp_sync_rcv(&ptp_ctx.clk_ctx, &master_time, time);
             } else {            // Store seq_id and timestamp
                 ctx->sync_seqid = ntohs(msg->hdr.seq_id);
-                ctx->sync_recv_corr_field = ntohll(msg->hdr.corr_field);
+                ctx->sync_recv_corr_field = 
+                    ntohll(msg->hdr.corr_field) + delay_asymmetry;
                 copy_timestamp(&ctx->sync_recv_time, time);
             }
         }
@@ -213,11 +241,13 @@ static void ptp_port_recv_follow_up(struct ptp_port_ctx *ctx,
 * Function for handling received Announce.
 * @param ctx Port context.
 * @param msg Sync message.
-* @param time frame timestamp
+* @param time frame timestamp.
+* @param peer_ip IP address of the sender of this message.
 */
 static void ptp_port_recv_announce(struct ptp_port_ctx *ctx,
                                    struct ptp_announce *msg,
-                                   struct Timestamp *time)
+                                   struct Timestamp *time,
+                                   char* peer_ip)
 {
     struct ForeignMasterDataSetElem *foreign_elem =
         ctx->foreign_master_head;
@@ -306,9 +336,12 @@ static void ptp_port_recv_announce(struct ptp_port_ctx *ctx,
             memcpy(foreign->src_port_id.clock_identity,
                    msg->hdr.src_port_id.clock_identity,
                    sizeof(ClockIdentity));
-            // ... and port
+            // ... port ...
             foreign->src_port_id.port_number =
                 ntohs(msg->hdr.src_port_id.port_number);
+            // ... and ip.
+            strncpy(foreign->src_ip, peer_ip, IP_STR_MAX_LEN);
+
             // copy destination clock id ...
             memcpy(foreign->dst_port_id.clock_identity,
                    ctx->port_dataset.port_identity.clock_identity,
@@ -367,8 +400,6 @@ static void ptp_port_recv_delay_req(struct ptp_port_ctx *ctx,
                msg->hdr.src_port_id.clock_identity, sizeof(ClockIdentity));
         port_id.port_number = ntohs(msg->hdr.src_port_id.port_number);
 
-        add_correction(time, ASYMMETRY_CORRECTION);
-
         // create delay_resp
         ret = create_delay_resp(ctx, tmpbuf, time, &port_id,
                                 htons(msg->hdr.seq_id),
@@ -378,6 +409,9 @@ static void ptp_port_recv_delay_req(struct ptp_port_ctx *ctx,
             ret = ptp_send(&ptp_ctx.pkt_ctx, PTP_DELAY_RESP,
                            ctx->port_dataset.port_identity.port_number,
                            tmpbuf, ret);
+            if( ret != PTP_ERR_OK ){
+                socket_restart = 1;
+            }
         }
     }
 }
@@ -404,9 +438,31 @@ static void ptp_port_recv_delay_resp(struct ptp_port_ctx *ctx,
 
     if ((ctx->port_dataset.port_state == PORT_SLAVE) ||
         (ctx->port_dataset.port_state == PORT_UNCALIBRATED)) {
+        ClockIdentity clock_id;
+        u16 port_number = ntohs(msg->req_port_id.port_number);
+
+        memcpy(clock_id, 
+               msg->req_port_id.clock_identity,
+               sizeof(ClockIdentity));
+
         // Check Delay_Resp
+        if ( ( compare_clock_id(clock_id,
+                                ctx->port_dataset.port_identity.clock_identity) 
+               != 0 ) ||
+             ( port_number != ctx->port_dataset.port_identity.port_number )){
+            DEBUG("delay_req port_identity mismatch (%i, %i)\n",
+                  port_number,
+                  ctx->port_dataset.port_identity.port_number );
+            DEBUG("local %s\n",
+                  ptp_clk_id(ctx->port_dataset.port_identity.clock_identity));
+            DEBUG("msg %s\n",
+                  ptp_clk_id(clock_id));
+                  
+            return;
+        }
+
         // sequence_id and current_master
-        if (((ctx->delay_req_seqid - 1) == ntohs(msg->hdr.seq_id)) &&
+        if (((ctx->delay_req_seqid_sent) == ntohs(msg->hdr.seq_id)) &&
             (memcmp(ctx->current_master,
                     msg->hdr.src_port_id.clock_identity,
                     sizeof(ClockIdentity)) == 0)) {
@@ -414,13 +470,12 @@ static void ptp_port_recv_delay_resp(struct ptp_port_ctx *ctx,
             DEBUG("Delay_resp from current master\n");
             ptp_convert_timestamp(&master_time, msg->recv_tstamp);
             add_correction(&ctx->delay_req_send_time,
-                           ntohll(msg->hdr.corr_field) -
-                           ASYMMETRY_CORRECTION);
+                           ntohll(msg->hdr.corr_field) );
             ptp_delay_rcv(&ptp_ctx.clk_ctx, &ctx->delay_req_send_time,
                           &master_time);
-        } else if ((ctx->delay_req_seqid - 1) != ntohs(msg->hdr.seq_id)) {
+        } else if ((ctx->delay_req_seqid_sent) != ntohs(msg->hdr.seq_id)) {
             DEBUG("delay_req seq_id mismatch %i %i\n",
-                  (ctx->delay_req_seqid - 1), ntohs(msg->hdr.seq_id));
+                  (ctx->delay_req_seqid_sent), ntohs(msg->hdr.seq_id));
         }
     }
 }

@@ -377,6 +377,9 @@ static void ptp_port_state_master(struct ptp_port_ctx *ctx,
                       (u32) ctx->sync_timer.nanoseconds);
                 ctx->timer_flags |= SYNC_TIMER;
             }
+            else {
+                socket_restart = 1;
+            }
         }
     }
     // Check if it is time to send announce
@@ -387,7 +390,7 @@ static void ptp_port_state_master(struct ptp_port_ctx *ctx,
               (u32) ctx->announce_timer.seconds,
               ctx->announce_timer.nanoseconds);
         // Create and send announce
-        ret = create_announce(ctx, tmpbuf, ctx->announce_seqid);
+        ret = create_announce(ctx, tmpbuf, ctx->announce_seqid, 0);
         if (ret > 0) {
             DEBUG("Send ANNOUNCE\n");
             ret = ptp_send(&ptp_ctx.pkt_ctx, PTP_ANNOUNCE,
@@ -408,6 +411,9 @@ static void ptp_port_state_master(struct ptp_port_ctx *ctx,
                       (u32) ctx->announce_timer.seconds,
                       (u32) ctx->announce_timer.nanoseconds);
                 ctx->timer_flags |= ANNOUNCE_TIMER;
+            }
+            else {
+                socket_restart = 1;
             }
         }
     }
@@ -481,12 +487,19 @@ static void ptp_port_state_uncalibrated(struct ptp_port_ctx *ctx,
                     current_time->seconds + t1_usec / 1000000;
                 ctx->delay_req_timer.nanoseconds =
                     current_time->nanoseconds + (t1_usec % 1000000) * 1000;
+                while( ctx->delay_req_timer.nanoseconds > SEC_IN_NS ){
+                    ctx->delay_req_timer.nanoseconds -= SEC_IN_NS;
+                    ctx->delay_req_timer.seconds++;
+                }   
                 DEBUG("Set Delay_req timeout 2^%i-2^%i=%uus %us %uns\n",
                       ctx->port_dataset.log_min_mean_delay_req_interval,
                       ctx->port_dataset.log_min_mean_delay_req_interval +
                       1, t1_usec, (u32) ctx->delay_req_timer.seconds,
                       (u32) ctx->delay_req_timer.nanoseconds);
                 ctx->timer_flags |= DELAY_REQ_TIMER;
+            }
+            else {
+                socket_restart = 1;
             }
         }
     }
@@ -543,6 +556,10 @@ static void ptp_port_state_slave(struct ptp_port_ctx *ctx,
                     current_time->seconds + t1_usec / 1000000;
                 ctx->delay_req_timer.nanoseconds =
                     current_time->nanoseconds + (t1_usec % 1000000) * 1000;
+                while( ctx->delay_req_timer.nanoseconds > SEC_IN_NS ){
+                    ctx->delay_req_timer.nanoseconds -= SEC_IN_NS;
+                    ctx->delay_req_timer.seconds++;
+                }   
                 DEBUG("Set Delay_req timeout 2^%i-2^%i=%uus %us %uns\n",
                       ctx->port_dataset.log_min_mean_delay_req_interval,
                       ctx->port_dataset.log_min_mean_delay_req_interval +
@@ -550,20 +567,71 @@ static void ptp_port_state_slave(struct ptp_port_ctx *ctx,
                       (u32) ctx->delay_req_timer.nanoseconds);
                 ctx->timer_flags |= DELAY_REQ_TIMER;
             }
+            else {
+                socket_restart = 1;
+            }
         }
     }
 }
 
 /**
-* Function for updating the PTP port state
+* Function for updating the PTP port state.
+* This function should check the validity of the port state updates, 
+* and do required ctx updates.
 * @param ctx Port context.
 * @param new_state new statemachine state.
 */
 void ptp_port_state_update(struct ptp_port_ctx *ctx,
                            enum PortState new_state)
 {
-    // This function should check the validity of the port state updates, 
-    // and do required ctx updates.
+    struct interface_config* if_config = 0;
+    int i = 0;
+
+    // Do ctx updates
+    switch (new_state) {
+    case PORT_INITIALIZING:
+        // When going to INITIALIZING, update delay_asymmetry
+        
+        // Locate correct interface
+        for( i = 0; i < ptp_cfg.num_interfaces; i++ ){
+            if( !strncmp(ctx->name, ptp_cfg.interfaces[i].name, 
+                         INTERFACE_NAME_LEN) ){
+                if_config = &ptp_cfg.interfaces[i];
+                break;
+            }
+        }
+        if( if_config ){
+            ctx->delay_asymmetry = if_config->delay_asymmetry;
+            if( if_config->delay_asymmetry_master_set ){
+                ctx->delay_asymmetry_master_set = 1;
+                memcpy(ctx->delay_asymmetry_master,
+                       if_config->delay_asymmetry_master,
+                       sizeof(ClockIdentity));
+            }
+        }
+        break;
+    case PORT_FAULTY:
+        break;
+    case PORT_DISABLED:
+        break;
+    case PORT_LISTENING:
+        break;
+    case PORT_PRE_MASTER:
+        break;
+    case PORT_MASTER:
+        break;
+    case PORT_PASSIVE:
+        break;
+    case PORT_UNCALIBRATED:
+        break;
+    case PORT_SLAVE:
+        break;
+    default:
+        ERROR("Error state: %i\n", ctx->port_dataset.port_state);
+        break;
+    }
+    
+    // Update state
     if (ctx->port_dataset.port_state != new_state) {
         DEBUG("from %s to %s\n",
               get_state_str(ctx->port_dataset.port_state),
@@ -580,10 +648,13 @@ void ptp_port_state_update(struct ptp_port_ctx *ctx,
 * @param new_state new bmc input.
 * @param master if BMC_SLAVE or BMC_PASSIVE, contains master 
 *               ClockIdentity, otherwise NULL.
+* @param peer_ip IP address of the sender of this message.
 * @return true if state updated.
 */
 bool ptp_port_bmc_update(struct ptp_port_ctx *ctx,
-                         enum BMCUpdate bmc_update, ClockIdentity master)
+                         enum BMCUpdate bmc_update, 
+                         ClockIdentity master,
+                         char* peer_ip)
 {
     struct Timestamp current_time = { 0, 0 };
     bool state_update = false;
@@ -643,6 +714,10 @@ bool ptp_port_bmc_update(struct ptp_port_ctx *ctx,
             // enter passive, copy master identity for the use of 
             // ANNOUNCE_RECEIPT_TIMEOUT_EXPIRES algorithm
             memcpy(ctx->current_master, master, sizeof(ClockIdentity));
+            strncpy(ctx->current_master_ip, peer_ip, IP_STR_MAX_LEN);
+            DEBUG("New master %s %s\n", 
+                  ctx->current_master_ip,
+                  ptp_clk_id(ctx->current_master));
         }
         if ((ctx->port_dataset.port_state == PORT_LISTENING) ||
             (ctx->port_dataset.port_state == PORT_UNCALIBRATED) ||
@@ -664,6 +739,11 @@ bool ptp_port_bmc_update(struct ptp_port_ctx *ctx,
                 memcpy(ctx->current_master, master, sizeof(ClockIdentity));
                 state_update = true;
                 ptp_port_state_update(ctx, PORT_UNCALIBRATED);
+
+                strncpy(ctx->current_master_ip, peer_ip, IP_STR_MAX_LEN);
+                DEBUG("New master %s %s\n", 
+                      ctx->current_master_ip,
+                      ptp_clk_id(ctx->current_master));
             }
         } else if ((ctx->port_dataset.port_state == PORT_LISTENING) ||
                    (ctx->port_dataset.port_state == PORT_PRE_MASTER) ||
@@ -672,6 +752,11 @@ bool ptp_port_bmc_update(struct ptp_port_ctx *ctx,
             memcpy(ctx->current_master, master, sizeof(ClockIdentity));
             ptp_port_state_update(ctx, PORT_UNCALIBRATED);
             state_update = true;
+            
+            strncpy(ctx->current_master_ip, peer_ip, IP_STR_MAX_LEN);
+            DEBUG("New master %s %s\n", 
+                  ctx->current_master_ip,
+                  ptp_clk_id(ctx->current_master));
         } else if (ctx->port_dataset.port_state == PORT_UNCALIBRATED) {
             if (memcmp(ctx->current_master,
                        master, sizeof(ClockIdentity)) != 0) {
@@ -679,6 +764,11 @@ bool ptp_port_bmc_update(struct ptp_port_ctx *ctx,
                 memcpy(ctx->current_master, master, sizeof(ClockIdentity));
                 // this is update, although port state is not changed
                 state_update = true;
+
+                strncpy(ctx->current_master_ip, peer_ip, IP_STR_MAX_LEN);
+                DEBUG("New master %s %s\n", 
+                      ctx->current_master_ip,
+                      ptp_clk_id(ctx->current_master));
             }
         }
         break;

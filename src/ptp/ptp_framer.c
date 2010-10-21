@@ -143,9 +143,11 @@ int create_follow_up(struct ptp_port_ctx *ctx,
 * @param ctx Port context.
 * @param buf Buffer to which frame is created.
 * @param seqid Sequence id.
+* @param local if true, use data from defaut dataset (instead of parent).
 * @return size of the created frame.
 */
-int create_announce(struct ptp_port_ctx *ctx, char *buf, u16 seqid)
+int create_announce(struct ptp_port_ctx *ctx, char *buf, 
+                    u16 seqid, int local)
 {
     struct ptp_announce *msg = 0;
     unsigned short len = sizeof(struct ptp_announce);
@@ -193,17 +195,38 @@ int create_announce(struct ptp_port_ctx *ctx, char *buf, u16 seqid)
     msg->time_source = ptp_ctx.time_dataset.time_source;        // timeSource 
     // stepsRemoved
     msg->steps_removed = htons(ptp_ctx.current_dataset.steps_removed);
-    memcpy(msg->grandmasterId, ptp_ctx.parent_dataset.grandmaster_identity, sizeof(ClockIdentity));     // grandmasterIdentity
-    msg->grandmasterClkQuality.clock_class =
-        ptp_ctx.parent_dataset.grandmaster_clock_quality.clock_class;
-    msg->grandmasterClkQuality.clock_accuracy =
-        ptp_ctx.parent_dataset.grandmaster_clock_quality.clock_accuracy;
-    msg->grandmasterClkQuality.offset_scaled_log_variance =
-        htons(ptp_ctx.parent_dataset.grandmaster_clock_quality.
-              offset_scaled_log_variance);
-    msg->grandmasterPri1 = ptp_ctx.parent_dataset.grandmaster_priority1;        // GM priority1
-    msg->grandmasterPri2 = ptp_ctx.parent_dataset.grandmaster_priority2;        // GM priority2
-
+    if( local ){
+        memcpy(msg->grandmasterId, 
+               ptp_ctx.default_dataset.clock_identity, 
+               sizeof(ClockIdentity));     // grandmasterIdentity
+        msg->grandmasterClkQuality.clock_class =
+            ptp_ctx.default_dataset.clock_quality.clock_class;
+        msg->grandmasterClkQuality.clock_accuracy =
+            ptp_ctx.default_dataset.clock_quality.clock_accuracy;
+        msg->grandmasterClkQuality.offset_scaled_log_variance =
+            htons(ptp_ctx.default_dataset.clock_quality.
+                  offset_scaled_log_variance);
+        // GM priority1
+        msg->grandmasterPri1 = ptp_ctx.default_dataset.priority1;  
+        // GM priority2  
+        msg->grandmasterPri2 = ptp_ctx.default_dataset.priority2;  
+    }
+    else {
+        memcpy(msg->grandmasterId, 
+               ptp_ctx.parent_dataset.grandmaster_identity, 
+               sizeof(ClockIdentity));     // grandmasterIdentity
+        msg->grandmasterClkQuality.clock_class =
+            ptp_ctx.parent_dataset.grandmaster_clock_quality.clock_class;
+        msg->grandmasterClkQuality.clock_accuracy =
+            ptp_ctx.parent_dataset.grandmaster_clock_quality.clock_accuracy;
+        msg->grandmasterClkQuality.offset_scaled_log_variance =
+            htons(ptp_ctx.parent_dataset.grandmaster_clock_quality.
+                  offset_scaled_log_variance);
+        // GM priority1
+        msg->grandmasterPri1 = ptp_ctx.parent_dataset.grandmaster_priority1;  
+        // GM priority2  
+        msg->grandmasterPri2 = ptp_ctx.parent_dataset.grandmaster_priority2;  
+    }
     return len;
 }
 
@@ -219,6 +242,7 @@ int create_delay_req(struct ptp_port_ctx *ctx, char *buf, u16 seqid)
     struct ptp_delay_req *msg = 0;
     unsigned short len = sizeof(struct ptp_delay_req);
     struct Timestamp time;
+    int64_t delay_asymmetry = 0;
     int ret = 0;
 
     DEBUG("\n");
@@ -236,8 +260,25 @@ int create_delay_req(struct ptp_port_ctx *ctx, char *buf, u16 seqid)
     if (ctx->unicast_port) {
         msg->hdr.flags |= PTP_UNICAST;
     }
-    msg->hdr.corr_field = 0;    // correctionField
-    memcpy(msg->hdr.src_port_id.clock_identity, ctx->port_dataset.port_identity.clock_identity, sizeof(ClockIdentity)); // sourcePortIdentity 
+    if( ctx->delay_asymmetry_master_set ){
+        if( !memcmp(ctx->delay_asymmetry_master,
+                    ctx->current_master,
+                    sizeof(ClockIdentity))){
+            delay_asymmetry = ctx->delay_asymmetry;
+        }
+    }
+    else {
+        delay_asymmetry = ctx->delay_asymmetry;
+    }
+    // Scale delay asymmetry from ps to ns.sns 
+    delay_asymmetry = (delay_asymmetry << 16)/1000;
+        
+    // correctionField, remove asymmetry
+    msg->hdr.corr_field = htonll( -delay_asymmetry );    
+
+    memcpy(msg->hdr.src_port_id.clock_identity, 
+           ctx->port_dataset.port_identity.clock_identity, 
+           sizeof(ClockIdentity)); // sourcePortIdentity 
     msg->hdr.src_port_id.port_number =
         htons(ctx->port_dataset.port_identity.port_number);
     msg->hdr.seq_id = htons(seqid);

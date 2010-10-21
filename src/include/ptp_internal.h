@@ -40,6 +40,7 @@
 */
 struct ForeignMasterDataSet {
     struct PortIdentity src_port_id;    ///< sourcePortIdentity from announce message
+    char src_ip[IP_STR_MAX_LEN];        ///< source ip from announce msg
     struct PortIdentity dst_port_id;    ///< sourcePortIdentity of the receiver of the announce message
     u8 foreign_master_announce_messages;        ///< number of annouce messages received during FOREIGN_MASTER_TIME_WINDOW
     u8 tstamp_index;            ///< wr index for announce_tstamp
